@@ -30,10 +30,10 @@ class ProductionInfo(QtGui.QWidget):
         QtGui.QWidget.__init__(self, *args)
         
         self.setMaximumHeight(200)
-        self.excel = '..\Arbeitsplan_fos4Acc_allV0.4.xlsx'
+        self.excelPlan = '..\..\Arbeitsplan_fos4Acc_allV0.4.xlsx'
+        self.excel = '..\..\FBGAcc_ProdutionsLog.xlsx'
         
         self.proStepNb = []
-        self.proStepStatus = None
         self.proShort = []
         self.proDiscription = []
         self.sollGreen = []
@@ -75,17 +75,15 @@ class ProductionInfo(QtGui.QWidget):
     def loadProductionTable(self, _file = None):
         print('Load productiontable')
         self.proStepNb = []
-        #self.proStepStatus = None
         self.proShort = []
         self.proDiscription = []
         self.sollGreen = []
         self.sollArray = []
         self.proMeas = []
         self.proCond = []
-        self.wb = load_workbook(filename=self.excel)
+        wb = load_workbook(filename=self.excelPlan)
         
-        ws = self.wb['acc_Plan']
-        self.__log = self.wb['acc_Produktion']
+        ws = wb['acc_Plan']
         content = True
         row = 2
         while content:
@@ -112,8 +110,9 @@ class ProductionInfo(QtGui.QWidget):
             
             row += 1
         
-        self.proStepStatus = np.zeros(len(self.proStepNb)-1, dtype=np.int16)
-        
+        self.wb = load_workbook(filename=self.excel)
+        self.__log = self.wb['acc_Produktion']
+                
         content = True
         while content:
             cell = self.__log['A'+str(self.__logRow)].value

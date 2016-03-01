@@ -13,8 +13,8 @@ __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.3.3'
-__date__ = '15.02.2016'
+__version__ = '0.3.4'
+__date__ = '23.02.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
 
@@ -79,6 +79,7 @@ class MainWindow(QtGui.QMainWindow):
         self.__heatingStartTime = 0
         self.__activateCooling = False
         self.__finalTemp = 90
+        self.cogSpectralWin = 2.5
         
         mainVL.addWidget(self.plotW)
         mainVL.addWidget(self.prodInfo)
@@ -765,7 +766,7 @@ class MainWindow(QtGui.QMainWindow):
                     self.prodInfo.setFWHM(fwhm)
                 elif m == 'asymm':
                     print('Determine Asymmety Ratio')
-                    cenCoG = self.centerOfGravity(x,y)
+                    cenCoG = self.centerOfGravity(x,y, peak)
                     asym = self.calculateAsym(cenFit, cenCoG)
                     self.prodInfo.setAsymmetrie(asym)
                 elif m == 'temp':
@@ -795,11 +796,18 @@ class MainWindow(QtGui.QMainWindow):
         
         return center, fwhm#, amp
    
-    def centerOfGravity(self, x, y):
+    def centerOfGravity(self, x, y, peak = None):
         if len(x) == 0:
             x,y = self.getdBmSpec()
         y = np.power(10,y/10)
-        pos = np.where(y>(np.max(y)*.3))[0]
+        if not peak:
+            print('CoG threshold')
+            pos = np.where(y>(np.max(y)*.3))[0]
+        else:
+            print('CoG spectral Window')
+            xmin = peak-self.cogSpectralWin
+            xmax = peak+self.cogSpectralWin
+            pos = np.where((x>=xmin)&(x<=xmax))[0]
         x = x[pos]
         y = y[pos]
            
