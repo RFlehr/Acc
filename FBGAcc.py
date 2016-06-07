@@ -10,6 +10,7 @@ import sys
 import MainWindow as mw
 
 app = QtGui.QApplication(sys.argv)
+app.setStyle('cleanlooks')
 spectra = mw.MainWindow()
 spectra.show()
 app.exec_()

@@ -29,7 +29,7 @@ class ProductionInfo(QtGui.QWidget):
     def __init__(self, *args):
         QtGui.QWidget.__init__(self, *args)
         
-        self.setMaximumHeight(200)
+        self.setMaximumHeight(500)
         self.excelPlan = '..\..\Arbeitsplan_fos4Acc_allV0.4.xlsx'
         self.excel = '..\..\FBGAcc_ProdutionsLog.xlsx'
         
@@ -60,6 +60,17 @@ class ProductionInfo(QtGui.QWidget):
         hl.addWidget(self.buttons)
         
         #self.buttons.startButton.clicked.connect(self.prodSequenzClicked)
+    
+    def generateIDs(self):
+        id = self.__proId.split('-')
+        num = int(id[-1])+1
+        proID = str(id[0])+str('-')+str(num).zfill(4)
+        sensorID = self.__log['C'+str(self.__logRow-1)].value
+        id = sensorID
+        num = int(id)+1
+        sensorID = str(num).zfill(4)
+        self.emitProdIds.emit(proID, sensorID)
+        
     def getProCondition(self):
         return self.proCond[self.__step]   
         
@@ -126,16 +137,6 @@ class ProductionInfo(QtGui.QWidget):
             
            
         self.generateIDs()
-    
-    def generateIDs(self):
-        id = self.__proId.split('-')  
-        num = int(id[-1])+1
-        proID = str(id[0])+str('-')+str(num).zfill(4)
-        sensorID = self.__log['C'+str(self.__logRow-1)].value
-        id = sensorID.split('.')
-        num = int(id[-1])+1
-        sensorID = str(id[0]) + '.' + str(num)
-        self.emitProdIds.emit(proID, sensorID)
         
     def setIDs(self, pro, fbg, sensor):
         self.__log['A'+str(self.__logRow)].value = str(pro)

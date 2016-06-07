@@ -24,9 +24,6 @@ class Plot(QtGui.QSplitter):
         self.__Regres = None
         self.__regPoints = 50
         self.__showReg = True
-        self.__scalePlot = True
-        self.__minWavlength = 1540.
-        self.__maxWavelength = 1560.
         self.__tracePoints = 1000
         self.lineWidth = 0
         self.specColor = QtGui.QColor(0,0,255)
@@ -91,12 +88,7 @@ class Plot(QtGui.QSplitter):
        
        
     def plotS(self, x, y):
-        if self.__scalePlot:
-            _x, _y = self.scalePlot(x, y)
-        else:
-            _x = x
-            _y = y
-        self.__Spectrum.setData(_x, _y)
+        self.__Spectrum.setData(x, y)
         
     def plotT(self, x, y):
         nop = len(x)
@@ -111,26 +103,6 @@ class Plot(QtGui.QSplitter):
         if self.__showReg and nop>1:
             self.calculateSlope(_x,_y)
         
-    def scalePlot(self, x, y):
-        pos = np.where((x>self.__minWavlength) & (x<=self.__maxWavelength))[0]
-        return x[pos], y[pos]
-        
-    def setAutoScaleWavelength(self, state):
-        if state:
-            self.__scalePlot = True
-        else:
-            self.__scalePlot = False
-            
-    def setMaxWavlength(self, maxW):
-        self.__maxWavelength = maxW
-        
-    def setMinWavelength(self, minW):
-        self.__minWavlength = minW
-        
-    def setRangeWavelength(self, minW, maxW):
-        self.__minWavlength = minW
-        self.__maxWavelenth = maxW
-            
     def setRegPoints(self, points=None):
         if points:
             self.__regPoints = points
@@ -152,6 +124,8 @@ class Plot(QtGui.QSplitter):
         #time in sec
         label = 's'
         times = timearray
+        if len(timearray) < 2:
+            return times
         lasttime = times[-1]
         if lasttime <= 180:
             label = 's'

@@ -5,16 +5,14 @@ Created on Fri Oct  2 10:16:23 2015
 @author: flehr
 
 ToDo:
-- read Produktion Doku
-- store Spectra, Peak wavelenth (average of 10); calc FWHM, Asymmetrie
-- dialog classes - warning, error, proceeded
+
 """
 __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.3.4'
-__date__ = '23.02.2016'
+__version__ = '0.4.1'
+__date__ = '04.03.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
 
@@ -23,6 +21,7 @@ sys.path.append('../')
 
 from pyqtgraph.Qt import QtGui, QtCore
 import plot as pl
+import options as opt
 import hyperion, time, os
 import numpy as np
 from scipy.ndimage.interpolation import shift
@@ -30,9 +29,6 @@ from qwt_widgets import SlopeMeter
 import productionInfo
 from tc08usb import TC08USB, USBTC08_TC_TYPE, USBTC08_ERROR#, USBTC08_UNITS
 from lmfit.models import GaussianModel
-#from MyDialogs import TimerDialog
-
-
 
 
 class MainWindow(QtGui.QMainWindow):
@@ -47,52 +43,52 @@ class MainWindow(QtGui.QMainWindow):
         self.HyperionIP = '10.0.0.55'
         self.__numChannel = 1
         self.__wavelength = None
+        self.__wavelength = np.zeros(20000)
+        self.__scaledWavelength = None
+        self.__scalePos = None
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.getData)
         self.updateTempTimer = QtCore.QTimer()
         self.updateTempTimer.timeout.connect(self.getTemp)
         self.startTime = None
         
-        
         self.__maxBuffer = 5000
         self.peaks = np.zeros(self.__maxBuffer)
         self.peaksTime = np.zeros(self.__maxBuffer)
         
-        self.specFolder = str('../Spektren')
+        self.specFolder = str('../../Spektren')
                
         self.setWindowTitle(__title__ + ' ' + __version__)
         self.resize(900, 600)
         
-        self.main_widget = QtGui.QWidget(self)
-        self.main_widget.setFocus()
-        self.setCentralWidget(self.main_widget)
-        
-        mainHL = QtGui.QHBoxLayout(self.main_widget)
-
-        mainVL = QtGui.QVBoxLayout()
-        
         self.plotW = pl.Plot()
         self.prodInfo = productionInfo.ProductionInfo()
+        self.__vorGrob = 1555.0
+        self.__vorFein = 1553.0
         self.waitHeating = False
         self.__heatingTime = 480 # 8min in sec
-        self.__heatingStartWl = 1553.8
+        self.__heatingStartWl = 1553.2
         self.__heatingStartTime = 0
         self.__activateCooling = False
         self.__finalTemp = 90
         self.cogSpectralWin = 2.5
         
-        mainVL.addWidget(self.plotW)
-        mainVL.addWidget(self.prodInfo)
-        mainHL.addLayout(mainVL)
-        mainHL.addWidget(self.createInfoWidget())
+        mainVSplit = QtGui.QSplitter()
+        mainVSplit.setOrientation(QtCore.Qt.Vertical)
+        mainVSplit.addWidget(self.plotW)
+        mainVSplit.addWidget(self.prodInfo)
         
-        font = QtGui.QFont()
-        font.setBold(True)
-        font.setPointSize(20)
-
+        mainHSplit = QtGui.QSplitter()
+        mainHSplit.setOrientation(QtCore.Qt.Horizontal)
+        mainHSplit.addWidget(mainVSplit)
+        mainHSplit.addWidget(self.createInfoWidget())
+        
+        self.setCentralWidget(mainHSplit)
+        
         self.createMenu()
                 
         #self.initDevice()
+        #self.connectTemp()
     
         self.plotW.returnSlope.connect(self.setSlope)
         
@@ -103,25 +99,21 @@ class MainWindow(QtGui.QMainWindow):
         self.prodInfo.emitSoll.connect(self.chan1SollLabel.setText)
         self.prodInfo.emitProdIds.connect(self.setProdIDs)
         self.prodInfo.buttons.startButton.clicked.connect(self.prodSequenzClicked)
-        
-                
-#==============================================================================
-#         self.setActionState()
-#         self.showOptions()
-#         self.showFitTable()
-#==============================================================================
+
+
     def initDevice(self):
         try:
             si255Comm = hyperion.HCommTCPSocket(self.HyperionIP, timeout = 5000)
         except hyperion.HyperionError as e:
             print e , ' \thaha'   
-        #except:
-            #print('err: ',err)
-            #pass
         if si255Comm.connected:
             self.si255 = hyperion.Hyperion(comm = si255Comm)
             self.isConnected=True
-            self.__wavelength = self.si255.wavelengths
+            self.__wavelength =np.array(self.si255.wavelengths)
+            _min = self.minWlSpin.value()
+            _max = self.maxWlSpin.value()
+            self.__scalePos = np.where((self.__wavelength>=_min) & (self.__wavelength<_max))[0]
+            self.__scaledWavelength = self.__wavelength[self.__scalePos]
         else:
             self.isConnected=False
             QtGui.QMessageBox.critical(self,'Connection Error',
@@ -241,9 +233,8 @@ class MainWindow(QtGui.QMainWindow):
         l.addWidget(sensorIdLabel,2,0)
         l.addWidget(self.sensorID,2,1)
         
-        
         return f
-       
+        
     def createInfoWidget(self):
         i = QtGui.QFrame()
         #i.setMaximumWidth(400)
@@ -278,12 +269,12 @@ class MainWindow(QtGui.QMainWindow):
         self.dispSpin = QtGui.QSpinBox()
         self.dispSpin.setRange(100,self.__maxBuffer)
         self.dispSpin.setValue(500)
-        spinLabel = QtGui.QLabel(text='Points for Regression: ')
+        #spinLabel = QtGui.QLabel(text='Points for Regression: ')
         #spinLabel.setFont(font)
-        self.numPointsSpin = QtGui.QSpinBox()
-        self.numPointsSpin.setRange(10,self.__maxBuffer)
-        self.numPointsSpin.setValue(50)
-        self.numPointsSpin.valueChanged.connect(self.plotW.setRegPoints)
+        #self.numPointsSpin = QtGui.QSpinBox()
+        #self.numPointsSpin.setRange(10,self.__maxBuffer)
+        #self.numPointsSpin.setValue(50)
+        #self.numPointsSpin.valueChanged.connect(self.plotW.setRegPoints)
         slopeLabel = QtGui.QLabel(text='Slope [pm/s]:')
         slopeLabel.setFont(font)
         dSlopeLabel = QtGui.QLabel(text= u'\u0394Slope [pm/s]:')
@@ -313,15 +304,11 @@ class MainWindow(QtGui.QMainWindow):
         valLayout.addWidget(sollLabel,0,1)
         valLayout.addWidget(self.chan1IsLabel,1,0)
         valLayout.addWidget(self.chan1SollLabel,1,1)
-        #valLayout.addWidget(slopeLabel,2,0)
-        ##valLayout.addWidget(dSlopeLabel,2,1)
-        #valLayout.addWidget(self.slopeCh1Label,3,0)
-        #valLayout.addWidget(self.dSlopeCh1Label,3,1)
-        valLayout.addWidget(spinLabel,3,0)
-        valLayout.addWidget(self.numPointsSpin,3,1)
         valLayout.addWidget(self.slopeCh1Dial,2,0)
         valLayout.addWidget(self.tempDisplay,2,1)
-        valLayout.addWidget(self.__timerLabel)
+        #valLayout.addWidget(spinLabel,3,0)
+        #valLayout.addWidget(self.numPointsSpin,3,1)
+        valLayout.addWidget(self.__timerLabel,3,0)
         
         
         self.slopeCh1Dial.setValue(0.)
@@ -374,19 +361,14 @@ class MainWindow(QtGui.QMainWindow):
         self.showDBmData = self.createAction('dBm', tip='Plot Spectum as dBm Data', checkable=True)
         self.showDBmData.setChecked(True)
         
-        
-        
-# 
-        #self.addActions(self.fileMenu,(self.importFileAction, self.importLogAction, self.exportData))
         self.fileMenu.addAction(self.quitAction)
-#        self.addActions(self.maesMenu, (self.startAction, self.stopAction))
+
         aboutAction = self.createAction('About', slot=self.about)
                                      
         self.helpMenu.addAction(aboutAction)
         
         self.toolbar = self.addToolBar('Measurement')
         
-        #self.toolbar.addAction(self.connectAction)
         self.addActions(self.toolbar, (self.connectAction, self.connectTempAction, None, self.startAction, self.stopAction,
                                       None,  self.showTraceAction, self.ptdAction, None, 
                                       self.showSpecAction, self.scalePlotAction, self.showDBmData))#, self.importFileAction, self.importLogAction, self.exportData, None,self.showOptAction,None,self.fitAction, self.showFitAction))
@@ -418,27 +400,19 @@ class MainWindow(QtGui.QMainWindow):
         self.minWlSpin.setSuffix(' nm')
         self.minWlSpin.setRange(1460.0,1615.0)
         self.minWlSpin.setValue(1540.0)
-        self.plotW.setMinWavelength(1540.0)
-        self.minWlSpin.valueChanged.connect(self.plotW.setMinWavelength)
+        self.minWlSpin.valueChanged.connect(self.scaleInputSpectrum)
         
         self.maxWlSpin = QtGui.QDoubleSpinBox()
         self.maxWlSpin.setDecimals(3)
         self.maxWlSpin.setSuffix(' nm')
         self.maxWlSpin.setRange(1465.0, 1620.0)
         self.maxWlSpin.setValue(1570.0)
-        self.plotW.setMaxWavlength(1570.0)
-        self.maxWlSpin.valueChanged.connect(self.plotW.setMaxWavlength)
-        
-        auto = QtGui.QCheckBox()
-        auto.setChecked(True)
-        auto.stateChanged.connect(self.setAutoScale)
-        
+        self.maxWlSpin.valueChanged.connect(self.scaleInputSpectrum)
         
         l = QtGui.QHBoxLayout()
         l.addWidget(self.minWlSpin)
         l.addWidget(QtGui.QLabel(text=' - '))
         l.addWidget(self.maxWlSpin)
-        l.addWidget(auto)
         
         w = QtGui.QWidget()
         w.setLayout(l)
@@ -454,19 +428,22 @@ class MainWindow(QtGui.QMainWindow):
         self.tempConnected = False
    
     def getData(self):
+        #get spectra
+        y = self.getdBmSpec()
+        y = y[self.__scalePos]
+        wl = self.__scaledWavelength
+        if self.showSpecAction.isChecked():
+            if not self.showDBmData.isChecked():
+                dbmData = np.power(10,y/10)
+            else:
+                dbmData = y
+            self.plotW.plotS(wl,dbmData)
+        
         #get peak data
+        numVal = self.getPeakData(wl, y)
         if self.showTraceAction.isChecked():
-            numVal = self.getPeakData()
             if numVal:
                 self.plotW.plotT(self.peaksTime[:numVal-1], self.peaks[:numVal-1])
-        
-        #get spectra
-        if self.showSpecAction.isChecked():
-            wl, dbmData = self.getdBmSpec()
-            
-            if not self.showDBmData.isChecked():
-                dbmData = np.power(10,dbmData/10)
-            self.plotW.plotS(wl,dbmData)
             
                    
         now = time.time()
@@ -482,12 +459,11 @@ class MainWindow(QtGui.QMainWindow):
     def getdBmSpec(self):
         try:
             dbmData = np.array(self.si255.get_spectrum([1,]), dtype=float)
-            wl = np.array(self.si255.wavelengths, dtype=float)
-         
+            
         except hyperion.HyperionError as e:
             print(e)
         
-        return wl, dbmData
+        return dbmData
         
     def getIDs(self):
         pro = self.proID.text()
@@ -496,28 +472,14 @@ class MainWindow(QtGui.QMainWindow):
         er = self.prodInfo.setIDs(pro, fbg, sensor)        
         return er
         
-    def getPeakData(self):
-        try:
-            peaks = self.si255.get_peaks()
-            #self.testChannelsForPeaks(peaks)
-            if len(peaks) == 0:
-                print('0 Peaks')
-                return 0
-            elif len(peaks) > 1:
-                print(len(peaks), ' Peaks')
-                peaks = np.where((peaks>1540)&(peaks<1570))
-        except hyperion.HyperionError as e:
-            print(e)
+    def getPeakData(self, wl, dbmData):
+        peak = self.centerOfGravity(wl, dbmData)
         timestamp = time.clock() - self.startTime
-        peakData  = peaks.get_channel(1)
-        if len(peakData) > 1:
-                peakData = np.where((peaks>1540)&(peaks<1580))
-        #print(peakData)
         numVal = np.count_nonzero(self.peaks)
-        self.chan1IsLabel.setText(str("{0:.3f}".format(peakData[0])))
+        self.chan1IsLabel.setText(str("{0:.3f}".format(peak)))
         self.calculateLabelColor()
         if self.waitHeating:
-            if peakData[0] >= self.__heatingStartWl:
+            if peak >= self.__heatingStartWl:
                 
                 self.heatingTimer.start()
                 self.waitHeating = False
@@ -525,24 +487,16 @@ class MainWindow(QtGui.QMainWindow):
                 self.prodInfo.buttons.startButton.setEnabled(False)
                 self.prodInfo.buttons.backButton.setEnabled(False)
                 self.prodInfo.buttons.stopButton.setEnabled(False)
-                #self.heatingDialog = TimerDialog()
-                #self.heatingDialog.exec_()
                 
         if numVal < self.__maxBuffer:
-            self.peaks[numVal] = peakData[0]
+            self.peaks[numVal] = peak
             self.peaksTime[numVal] = timestamp
         else:
-            self.peaks = shift(self.peaks, -1, cval = peakData[0])
+            self.peaks = shift(self.peaks, -1, cval = peak)
             self.peaksTime = shift(self.peaksTime, -1, cval = timestamp)
             
         return numVal
         
-    def getRawSpec(self, channel = 1):
-        rawData = np.array(self.si255.get_raw_spectrum(channel), dtype=float)
-        wl = self.si255.wavelengths
-        
-        return wl, rawData
-    
     def getTemp(self):
         self.tc08usb.get_single()
         temp = self.tc08usb[1]
@@ -552,9 +506,10 @@ class MainWindow(QtGui.QMainWindow):
     
     def saveSpectrum(self, x, y):
         if len(x) == 0:
-            x, y = self.getdBmSpec()
+            y = self.getdBmSpec()
+            y = y[self.__scalePos]
+            x = self.__scaledWavelength
         fname = time.strftime('%Y%m%d_%H%M%S') + self.sensorID.text() + '.spc'
-        #print(self.specFolder, fname)
         _file = os.path.join(str(self.specFolder) , str(fname))  
         
         File = open(_file,'w')
@@ -563,10 +518,18 @@ class MainWindow(QtGui.QMainWindow):
         File.close()
         return fname
             
-            
+    def scaleInputSpectrum(self):
+        _min = float(self.minWlSpin.value())
+        _max = float(self.maxWlSpin.value())
+        if _min > _max:
+            _min = _max-1
+        if _max < _min:
+            _max = _min+1
+        self.__scalePos = np.where((self.__wavelength>=_min)&(self.__wavelength<=_max))[0]
+        self.__scaledWavelength = self.__wavelength[self.__scalePos]
+        
     def setActionState(self):
         if self.isConnected:
-            self.connectAction.setEnabled(False)
             if self.measurementActive:
                 self.startAction.setEnabled(False)
                 self.stopAction.setEnabled(True)
@@ -574,7 +537,6 @@ class MainWindow(QtGui.QMainWindow):
                 self.startAction.setEnabled(True)
                 self.stopAction.setEnabled(False)
         else:
-            self.connectAction.setEnabled(True)
             self.startAction.setEnabled(False)
             self.stopAction.setEnabled(False)
             
@@ -586,7 +548,6 @@ class MainWindow(QtGui.QMainWindow):
     def setSlope(self, slope, Dslope):
         self.slopeCh1Label.setText(slope)
         self.dSlopeCh1Label.setText(Dslope)  
-        #print(float(slope), self.slopeCh1Dial.value())
         self.slopeCh1Dial.setSlope(float(slope))
         
     def setTime(self, sec):
@@ -739,7 +700,7 @@ class MainWindow(QtGui.QMainWindow):
      
     def parseProdMeas(self):
         meas = self.prodInfo.getProMeas()
-        x = None
+        x = self.__scaledWavelength
         y = None
         cenFit = 0.
         cenCoG = 0.
@@ -757,7 +718,8 @@ class MainWindow(QtGui.QMainWindow):
                     self.prodInfo.setPeakWavelength(peak)
                 elif m == 'spectrum':
                     print('Measure Spectrum')
-                    x, y = self.getdBmSpec()
+                    y = self.getdBmSpec()
+                    y = y[self.__scalePos]
                     fname = self.saveSpectrum(x,y)
                     self.prodInfo.setSpecFile(fname)
                 elif m == 'fwhm':
@@ -784,7 +746,9 @@ class MainWindow(QtGui.QMainWindow):
    
     def peakFit(self, x, y, peak=None):
         if len(x) == 0:
-            x, y = self.getdBmSpec()
+            y = self.getdBmSpec()
+            y = y[self.__scalePos]
+            x = self.__scaledWavelength
         y = np.power(10,y/10)
         mod = GaussianModel()
         pars = mod.guess(y, x=x)
@@ -796,17 +760,18 @@ class MainWindow(QtGui.QMainWindow):
         
         return center, fwhm#, amp
    
-    def centerOfGravity(self, x, y, peak = None):
+    def centerOfGravity(self, x, y, peak=None):
         if len(x) == 0:
-            x,y = self.getdBmSpec()
+            y = self.getdBmSpec()
+            y = y[self.__scalePos]
+            x = self.__scaledWavelength
         y = np.power(10,y/10)
         if not peak:
-            print('CoG threshold')
             pos = np.where(y>(np.max(y)*.3))[0]
         else:
             print('CoG spectral Window')
-            xmin = peak-self.cogSpectralWin
-            xmax = peak+self.cogSpectralWin
+            xmin = float(peak)-float(self.cogSpectralWin)
+            xmax = float(peak)+float(self.cogSpectralWin)
             pos = np.where((x>=xmin)&(x<=xmax))[0]
         x = x[pos]
         y = y[pos]
