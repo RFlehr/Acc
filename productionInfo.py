@@ -16,7 +16,7 @@ Anweisung:
 from PyQt4 import QtGui, QtCore
 from openpyxl import load_workbook
 from time import strftime
-import numpy as np
+#import os
 #print(strftime("%d.%m.%Y"))
 
 class ProductionInfo(QtGui.QWidget):
@@ -30,9 +30,11 @@ class ProductionInfo(QtGui.QWidget):
         QtGui.QWidget.__init__(self, *args)
         
         self.setMaximumHeight(500)
-        self.excelPlan = '..\..\Arbeitsplan_fos4Acc_allV0.4.xlsx'
-        self.excel = '..\..\FBGAcc_ProdutionsLog.xlsx'
-        
+
+        self.__paths = ['','','']
+        self.__pathLabels = ['Produktionsplan', 'Produktionsdokumentation', 
+                  'Spektrenordner']
+                  
         self.proStepNb = []
         self.proShort = []
         self.proDiscription = []
@@ -59,6 +61,9 @@ class ProductionInfo(QtGui.QWidget):
         self.buttons = Buttons()
         hl.addWidget(self.buttons)
         
+        self.loadSettings()
+        #self.loadProductionTable()
+        
         #self.buttons.startButton.clicked.connect(self.prodSequenzClicked)
     
     def generateIDs(self):
@@ -81,18 +86,22 @@ class ProductionInfo(QtGui.QWidget):
         return self.__step
         
     def getTolaranz(self):
-        return self.sollGreen[self.__step]
+        return self.__VorspTol[self.sollArray[self.__step]-1]
         
-    def loadProductionTable(self, _file = None):
-        print('Load productiontable')
+    def loadProductionTable(self):
+        print('Lade Produktionstabelle')
+        if not self.__paths[0]:
+            QtGui.QMessageBox.critical(self, 'Keine Produktionsdatei','Kein Pfad angegeben! Bitte in Optionen nachtragen.')
+            return 0
         self.proStepNb = []
         self.proShort = []
         self.proDiscription = []
-        self.sollGreen = []
         self.sollArray = []
         self.proMeas = []
         self.proCond = []
-        wb = load_workbook(filename=self.excelPlan)
+        filename=self.__paths[0]
+        print(filename)
+        wb = load_workbook(filename)
         
         ws = wb['acc_Plan']
         content = True
@@ -111,17 +120,19 @@ class ProductionInfo(QtGui.QWidget):
             cell = ws['F'+str(row)].value
             self.proDiscription.append(self.testCell(cell))
             cell = ws['G'+str(row)].value
-            self.sollArray.append(self.testCellNum(cell))
-            cell = ws['H'+str(row)].value
-            self.sollGreen.append(self.testCellNum(cell))
+            self.sollArray.append(int(self.testCellNum(cell)))
+            #cell = ws['H'+str(row)].value
+            #self.sollGreen.append(self.testCellNum(cell))
             cell = ws['I'+str(row)].value
             self.proMeas.append(self.testCell(cell))
             cell = ws['J'+str(row)].value
             self.proCond.append(self.testCell(cell))
             
             row += 1
+        print('Produktionstabelle wurde geladen')
         
-        self.wb = load_workbook(filename=self.excel)
+        print('Lade Log-Datei')
+        self.wb = load_workbook(filename=self.__paths[1])
         self.__log = self.wb['acc_Produktion']
                 
         content = True
@@ -137,13 +148,34 @@ class ProductionInfo(QtGui.QWidget):
             
            
         self.generateIDs()
+        print('Log-Datei wurde geladen')
+        return 1
+        
+    def loadSettings(self):
+        print('Lade Einstellungen Produktionsverlauf')
+        self.__Vorsp = []
+        self.__VorspTol = []
+        settings = QtCore.QSettings('test.ini',QtCore.QSettings.IniFormat)
+        settings.beginGroup('Produktion')
+        self.__Vorsp.append(float(settings.value('VorspannGrob')))
+        self.__VorspTol.append(float(settings.value('VorGrobTol')))
+        self.__Vorsp.append(float(settings.value('VorspannFein')))
+        self.__VorspTol.append(float(settings.value('VorFeinTol')))
+        settings.endGroup()
+        settings.beginGroup('Dateipfade')
+        for i in range(3):
+            s = settings.value(self.__pathLabels[i])
+            self.__paths[i] = s
+        settings.endGroup()
+        print('Einstellungen Produktionsverlauf wurden geladen')
+        
         
     def setIDs(self, pro, fbg, sensor):
         self.__log['A'+str(self.__logRow)].value = str(pro)
         self.__log['B'+str(self.__logRow)].value = str(fbg)
         self.__log['C'+str(self.__logRow)].value = str(sensor)
         self.__log['D'+str(self.__logRow)].value = strftime("%d.%m.%Y")
-        self.wb.save(self.excel)
+        self.wb.save(self.__paths[1])
         
         return 1
         
@@ -158,14 +190,14 @@ class ProductionInfo(QtGui.QWidget):
             col = 'N'
             
         self.__log[col+str(self.__logRow)].value = float(wavelength)
-        self.wb.save(self.excel)
+        self.wb.save(self.__paths[1])
             
     def setSpecFile(self, fname):
         if self.proStepNb[self.__step] == 3:
             col = 'G'
             
         self.__log[col+str(self.__logRow)].value = str(fname)
-        self.wb.save(self.excel)
+        self.wb.save(self.__paths[1])
     
     def setTemp(self, temp):
         if self.proStepNb[self.__step] == 3:
@@ -178,21 +210,21 @@ class ProductionInfo(QtGui.QWidget):
             col = 'Q'
         temp = temp.split(' ')
         self.__log[col+str(self.__logRow)].value = float(temp[0])
-        self.wb.save(self.excel)
+        self.wb.save(self.__paths[1])
     
     def setFWHM(self, fwhm):
         if self.proStepNb[self.__step] == 3:
             col = 'H'
         
         self.__log[col+str(self.__logRow)].value = float(fwhm)
-        self.wb.save(self.excel)
+        self.wb.save(self.__paths[1])
     
     def setAsymmetrie(self,asym):
         if self.proStepNb[self.__step] == 3:
             col = 'I'
              
         self.__log[col+str(self.__logRow)].value = float(asym)
-        self.wb.save(self.excel)
+        self.wb.save(self.__paths[1])
             
     def testCell(self,cell): 
         if cell:
@@ -213,8 +245,8 @@ class ProductionInfo(QtGui.QWidget):
         discription = self.proDiscription[num]
         goal = 'Zielwert: '
         if self.sollArray[num]:
-            goal = goal + str("{0:.3f}".format(self.sollArray[num])) + u' \u00B1 ' + str("{0:.3f}".format(self.sollGreen[num]))
-            self.emitSoll.emit(str("{0:.3f}".format(self.sollArray[num])))
+            goal = goal + str("{0:.3f}".format(self.__Vorsp[self.sollArray[num]-1])) + u' \u00B1 ' + str("{0:.3f}".format(self.__VorspTol[self.sollArray[num]-1]))
+            self.emitSoll.emit(str("{0:.3f}".format(self.__Vorsp[self.sollArray[num]-1])))
         else:
             goal = goal + '---'
             self.emitSoll.emit('----.---')
@@ -241,8 +273,8 @@ class ProductionInfo(QtGui.QWidget):
             self.buttons.backButton.setEnabled(True)
         
     def startProduction(self):
-        self.loadProductionTable()
-        
+        if not self.loadProductionTable():
+            return 0
         self.__step = 0
         self.makeProTxt(self.__step)
         self.buttons.startButton.setText('Weiter')

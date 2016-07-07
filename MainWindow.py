@@ -11,7 +11,7 @@ __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.4.1'
+__version__ = '0.4.2'
 __date__ = '04.03.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
@@ -21,14 +21,15 @@ sys.path.append('../')
 
 from pyqtgraph.Qt import QtGui, QtCore
 import plot as pl
-import options as opt
 import hyperion, time, os
 import numpy as np
 from scipy.ndimage.interpolation import shift
 from qwt_widgets import SlopeMeter
 import productionInfo
 from tc08usb import TC08USB, USBTC08_TC_TYPE, USBTC08_ERROR#, USBTC08_UNITS
-from lmfit.models import GaussianModel
+#from lmfit.models import GaussianModel
+from scipy.optimize import curve_fit
+from options import OptionDialog
 
 
 class MainWindow(QtGui.QMainWindow):
@@ -46,29 +47,28 @@ class MainWindow(QtGui.QMainWindow):
         self.__wavelength = np.zeros(20000)
         self.__scaledWavelength = None
         self.__scalePos = None
+        self.plotW = pl.Plot()
+        
+        self.loadSettings()
+        
+        
+        
+        self.testModus = True
+        
+        
         self.updateTimer = QtCore.QTimer()
         self.updateTimer.timeout.connect(self.getData)
         self.updateTempTimer = QtCore.QTimer()
         self.updateTempTimer.timeout.connect(self.getTemp)
         self.startTime = None
         
-        self.__maxBuffer = 5000
-        self.peaks = np.zeros(self.__maxBuffer)
-        self.peaksTime = np.zeros(self.__maxBuffer)
         
-        self.specFolder = str('../../Spektren')
-               
         self.setWindowTitle(__title__ + ' ' + __version__)
         self.resize(900, 600)
         
-        self.plotW = pl.Plot()
+        
         self.prodInfo = productionInfo.ProductionInfo()
-        self.__vorGrob = 1555.0
-        self.__vorFein = 1553.0
         self.waitHeating = False
-        self.__heatingTime = 480 # 8min in sec
-        self.__heatingStartWl = 1553.2
-        self.__heatingStartTime = 0
         self.__activateCooling = False
         self.__finalTemp = 90
         self.cogSpectralWin = 2.5
@@ -87,38 +87,48 @@ class MainWindow(QtGui.QMainWindow):
         
         self.createMenu()
                 
-        #self.initDevice()
-        #self.connectTemp()
-    
         self.plotW.returnSlope.connect(self.setSlope)
         
         self.slopeCh1Dial.setSlope(0)
         self.setActionState()
-        self.prodInfo.loadProductionTable()
         
         self.prodInfo.emitSoll.connect(self.chan1SollLabel.setText)
         self.prodInfo.emitProdIds.connect(self.setProdIDs)
         self.prodInfo.buttons.startButton.clicked.connect(self.prodSequenzClicked)
+        
+        self.loadSettings()
 
 
+    
     def initDevice(self):
-        try:
-            si255Comm = hyperion.HCommTCPSocket(self.HyperionIP, timeout = 5000)
-        except hyperion.HyperionError as e:
-            print e , ' \thaha'   
-        if si255Comm.connected:
-            self.si255 = hyperion.Hyperion(comm = si255Comm)
-            self.isConnected=True
-            self.__wavelength =np.array(self.si255.wavelengths)
-            _min = self.minWlSpin.value()
-            _max = self.maxWlSpin.value()
-            self.__scalePos = np.where((self.__wavelength>=_min) & (self.__wavelength<_max))[0]
-            self.__scaledWavelength = self.__wavelength[self.__scalePos]
+        if self.isConnected:
+            try:
+                if self.si255.comm.connected:
+                    self.si255.comm.close()
+                    self.isConnected = False
+                    self.setActionState()
+            except:
+                pass
         else:
-            self.isConnected=False
-            QtGui.QMessageBox.critical(self,'Connection Error',
-                                       'Could not connect to Spectrometer. Please try again')
-        self.setActionState()       
+            try:
+                si255Comm = hyperion.HCommTCPSocket(self.HyperionIP, timeout = 5000)
+            except hyperion.HyperionError as e:
+                print e , ' \thaha'   
+            if si255Comm.connected:
+                self.si255 = hyperion.Hyperion(comm = si255Comm)
+                self.isConnected=True
+                self.__wavelength =np.array(self.si255.wavelengths)
+                _min = self.minWlSpin.value()
+                _max = self.maxWlSpin.value()
+                self.__scalePos = np.where((self.__wavelength>=_min) & (self.__wavelength<_max))[0]
+                self.__scaledWavelength = self.__wavelength[self.__scalePos]
+                self.setActionState()   
+                return 1
+            else:
+                self.isConnected=False
+                self.printError(5)
+                self.setActionState()   
+                return 0
          
     def about(self):
         QtGui.QMessageBox.about(self,'About '+__title__,
@@ -266,9 +276,6 @@ class MainWindow(QtGui.QMainWindow):
         self.chan1SollLabel.setFont(font)
         font.setBold(True)
         font.setPointSize(12)
-        self.dispSpin = QtGui.QSpinBox()
-        self.dispSpin.setRange(100,self.__maxBuffer)
-        self.dispSpin.setValue(500)
         #spinLabel = QtGui.QLabel(text='Points for Regression: ')
         #spinLabel.setFont(font)
         #self.numPointsSpin = QtGui.QSpinBox()
@@ -279,10 +286,6 @@ class MainWindow(QtGui.QMainWindow):
         slopeLabel.setFont(font)
         dSlopeLabel = QtGui.QLabel(text= u'\u0394Slope [pm/s]:')
         dSlopeLabel.setFont(font)
-        self.slopeCh1Label = QtGui.QLabel(text='---')
-        self.slopeCh1Label.setFont(font)
-        self.dSlopeCh1Label = QtGui.QLabel(text='---')
-        self.dSlopeCh1Label.setFont(font)
         self.slopeCh1Dial = SlopeMeter()
         self.tempDisplay = QtGui.QLabel(text=u'-.- \u00b0C')
         font.setBold(True)
@@ -322,9 +325,9 @@ class MainWindow(QtGui.QMainWindow):
         
     def createMenu(self):
         
-        self.fileMenu = self.menuBar().addMenu('&File')
-        self.maesMenu = self.menuBar().addMenu('&Measurement')
-        self.helpMenu = self.menuBar().addMenu('&Help')
+        self.fileMenu = self.menuBar().addMenu('&Datei')
+        self.maesMenu = self.menuBar().addMenu('&Messung')
+        self.helpMenu = self.menuBar().addMenu('&Hilfe')
         waL = QtGui.QWidgetAction(self)
         dispSpinLabel = QtGui.QLabel(text='Points displayed: ')
         waL.setDefaultWidget(dispSpinLabel)
@@ -332,94 +335,39 @@ class MainWindow(QtGui.QMainWindow):
         #self.menuBar().addAction(wa)
         self.quitAction = self.createAction('Q&uit',slot=self.close,shortcut='Ctrl+Q',
                                             icon='Button Close',tip='Close App')
-        self.connectAction = self.createAction('&Connect', slot=self.initDevice,
-                                              tip='Connect Spectrometer', checkable = True,
-                                              icon='Button Add')        
-        self.connectTempAction = self.createAction('Thermo', slot=self.tempActionToggled, tip='Connect Thermometer',
+        self.connectAction = self.createAction('Verbinden', slot=self.initDevice,
+                                              tip='Verbinde Spectrometer')        
+        self.connectTempAction = self.createAction('Thermo', slot=self.tempActionToggled, tip='Verbinde Thermometer',
                                                    checkable=True)
         
         self.startAction = self.createAction('St&art', slot=self.startMeasurement, shortcut='Ctrl+M',
-                                             tip='Start Measurement', icon='Button Play')
+                                             tip='Start Messung', icon='Button Play')
 #         #self.pauseAction = self.createAction('Pa&use', #slot=self.pauseMeasurement, shortcut='Ctrl+U', 
 #          #                                    tip='Pause Measurement', icon='Button Pause')
 #         
         self.stopAction = self.createAction('St&op', slot=self.stopMeasurement, shortcut='Ctrl+T',
-                                        tip='Stop Measurment', icon='Button Stop')
-        #self.dBmAction = self.createAction('dBm', tip='Plot logarithmic Data', checkable=True)
-        #self.dBmAction.setChecked(True)
-        
-        self.showTraceAction = self.createAction('Trace', tip='Show Peakwavelength vs. Time', checkable=True)
-        self.showTraceAction.setChecked(True)
-        self.ptdAction = self.createPointsOfTraceAction()
-        self.scalePlotAction = self.createScalePlotAction()
-        self.scalePlotAction.setChecked(True)
-        
-        self.showSpecAction = self.createAction('Spec', slot=self.showPlot, tip='Show Spectrum', checkable=True)
-        self.showSpecAction.setChecked(True)
-        self.showTraceAction.toggled.connect(self.showPlot)
-        
-        self.showDBmData = self.createAction('dBm', tip='Plot Spectum as dBm Data', checkable=True)
-        self.showDBmData.setChecked(True)
+                                        tip='Stop Messung', icon='Button Stop')
         
         self.fileMenu.addAction(self.quitAction)
 
         aboutAction = self.createAction('About', slot=self.about)
+        
+        optionAction = self.createAction('O&ptionen', tip='Optionsdialog', slot=self.openOptionsDialog)
                                      
         self.helpMenu.addAction(aboutAction)
+        self.helpMenu.addAction(optionAction)
         
         self.toolbar = self.addToolBar('Measurement')
         
-        self.addActions(self.toolbar, (self.connectAction, self.connectTempAction, None, self.startAction, self.stopAction,
-                                      None,  self.showTraceAction, self.ptdAction, None, 
-                                      self.showSpecAction, self.scalePlotAction, self.showDBmData))#, self.importFileAction, self.importLogAction, self.exportData, None,self.showOptAction,None,self.fitAction, self.showFitAction))
+        self.addActions(self.toolbar, (self.connectAction, self.connectTempAction, None, self.startAction, self.stopAction))#, self.importFileAction, self.importLogAction, self.exportData, None,self.showOptAction,None,self.fitAction, self.showFitAction))
         
-    def createPointsOfTraceAction(self):
-        wa = QtGui.QWidgetAction(self)
-        s = QtGui.QSpinBox()
-        s.setRange(100,self.__maxBuffer)
-        s.setValue(500)
-        sl = QtGui.QLabel(text='Points: ')
-        self.plotW.setTracePoints(s.value())
-        s.valueChanged.connect(self.plotW.setTracePoints)
-        
-        l = QtGui.QHBoxLayout()
-        l.addWidget(sl)
-        l.addWidget(s)
-        
-        w = QtGui.QWidget()
-        w.setLayout(l)
-        wa.setDefaultWidget(w)
-        
-        return wa
-        
-    def createScalePlotAction(self):
-        wa = QtGui.QWidgetAction(self)
-        
-        self.minWlSpin = QtGui.QDoubleSpinBox()
-        self.minWlSpin.setDecimals(3)
-        self.minWlSpin.setSuffix(' nm')
-        self.minWlSpin.setRange(1460.0,1615.0)
-        self.minWlSpin.setValue(1540.0)
-        self.minWlSpin.valueChanged.connect(self.scaleInputSpectrum)
-        
-        self.maxWlSpin = QtGui.QDoubleSpinBox()
-        self.maxWlSpin.setDecimals(3)
-        self.maxWlSpin.setSuffix(' nm')
-        self.maxWlSpin.setRange(1465.0, 1620.0)
-        self.maxWlSpin.setValue(1570.0)
-        self.maxWlSpin.valueChanged.connect(self.scaleInputSpectrum)
-        
-        l = QtGui.QHBoxLayout()
-        l.addWidget(self.minWlSpin)
-        l.addWidget(QtGui.QLabel(text=' - '))
-        l.addWidget(self.maxWlSpin)
-        
-        w = QtGui.QWidget()
-        w.setLayout(l)
-        wa.setDefaultWidget(w)
-        
-        return wa
-    
+    def openOptionsDialog(self):
+        option = OptionDialog()
+        if option.exec_():
+            self.prodInfo.loadSettings()
+            self.loadSettings()
+            pass
+            
     def disconnectTemp(self):
         if self.updateTempTimer.isActive():
             self.updateTempTimer.stop()
@@ -433,11 +381,7 @@ class MainWindow(QtGui.QMainWindow):
         y = y[self.__scalePos]
         wl = self.__scaledWavelength
         if self.showSpecAction.isChecked():
-            if not self.showDBmData.isChecked():
-                dbmData = np.power(10,y/10)
-            else:
-                dbmData = y
-            self.plotW.plotS(wl,dbmData)
+            self.plotW.plotS(wl,y)
         
         #get peak data
         numVal = self.getPeakData(wl, y)
@@ -473,20 +417,23 @@ class MainWindow(QtGui.QMainWindow):
         return er
         
     def getPeakData(self, wl, dbmData):
-        peak = self.centerOfGravity(wl, dbmData)
+        peak = self.peakFit(wl, dbmData)
         timestamp = time.clock() - self.startTime
         numVal = np.count_nonzero(self.peaks)
         self.chan1IsLabel.setText(str("{0:.3f}".format(peak)))
         self.calculateLabelColor()
         if self.waitHeating:
             if peak >= self.__heatingStartWl:
-                
                 self.heatingTimer.start()
                 self.waitHeating = False
+                self.prodInfo.buttons.startButton.setEnabled(True)
                 self.__heatingStartTime = time.time()
-                self.prodInfo.buttons.startButton.setEnabled(False)
-                self.prodInfo.buttons.backButton.setEnabled(False)
-                self.prodInfo.buttons.stopButton.setEnabled(False)
+#==============================================================================
+#                 
+#                 self.prodInfo.buttons.startButton.setEnabled(False)
+#                 self.prodInfo.buttons.backButton.setEnabled(False)
+#                 self.prodInfo.buttons.stopButton.setEnabled(False)
+#==============================================================================
                 
         if numVal < self.__maxBuffer:
             self.peaks[numVal] = peak
@@ -502,7 +449,34 @@ class MainWindow(QtGui.QMainWindow):
         temp = self.tc08usb[1]
         tempStr = str("{0:.1f}".format(temp)) + u' \u00b0C'
         self.tempDisplay.setText(tempStr)
+
+    def loadSettings(self):
+        print('Lade Einstellungen Hauptfenster')
+        self.__Vorsp = []
+        self.__VorspTol = []
+        settings = QtCore.QSettings('test.ini',QtCore.QSettings.IniFormat)
+        settings.beginGroup('Produktion')
+        self.__heatingTime = int(settings.value('Heizdauer'))
+        vorSp = float(settings.value('VorspannFein'))
+        deltaHeating = float(settings.value('HeizDetekt'))
+        settings.endGroup()
         
+        settings.beginGroup('Dateipfade')
+        self.specFolder = settings.value('Spektrenordner')
+        settings.endGroup()
+        self.__heatingStartWl = vorSp + deltaHeating
+        
+        settings.beginGroup('Plot')
+        self.setBuffer(int(settings.value('Buffer')))
+        self.plotW.setTracePoints(int(settings.value('TracePunkte')))
+        showTrace = int(settings.value('ShowTrace'))
+        showSpec = int(settings.value('ShowSpec'))
+        minWl = float(settings.value('MinWl'))
+        maxWl = float(settings.value('MaxWl'))
+        settings.endGroup()
+        self.showPlot(showTrace,showSpec)
+        self.scaleInputSpectrum(minWl,maxWl)
+        print('Einstellungen Hauptfenster wurden geladen')        
     
     def saveSpectrum(self, x, y):
         if len(x) == 0:
@@ -518,36 +492,36 @@ class MainWindow(QtGui.QMainWindow):
         File.close()
         return fname
             
-    def scaleInputSpectrum(self):
-        _min = float(self.minWlSpin.value())
-        _max = float(self.maxWlSpin.value())
-        if _min > _max:
-            _min = _max-1
-        if _max < _min:
-            _max = _min+1
+    def scaleInputSpectrum(self,_min,_max):
         self.__scalePos = np.where((self.__wavelength>=_min)&(self.__wavelength<=_max))[0]
         self.__scaledWavelength = self.__wavelength[self.__scalePos]
         
     def setActionState(self):
         if self.isConnected:
+            self.connectAction.setIcon(QtGui.QIcon('../icons/Button Delete.png'))
             if self.measurementActive:
+                self.connectAction.setEnabled(False)
                 self.startAction.setEnabled(False)
                 self.stopAction.setEnabled(True)
             else:
+                self.connectAction.setEnabled(True)
                 self.startAction.setEnabled(True)
                 self.stopAction.setEnabled(False)
         else:
+            self.connectAction.setIcon(QtGui.QIcon('../icons/Button Add.png'))
             self.startAction.setEnabled(False)
             self.stopAction.setEnabled(False)
+            
+    def setBuffer(self,maxBuffer):
+        self.peaks = np.zeros(maxBuffer)
+        self.peaksTime = np.zeros(maxBuffer)
             
     def setProdIDs(self, proID, sensorID):
         self.proID.setText(proID)
         self.fbgID.clear()
         self.sensorID.setText(sensorID)
             
-    def setSlope(self, slope, Dslope):
-        self.slopeCh1Label.setText(slope)
-        self.dSlopeCh1Label.setText(Dslope)  
+    def setSlope(self, slope):
         self.slopeCh1Dial.setSlope(float(slope))
         
     def setTime(self, sec):
@@ -565,11 +539,7 @@ class MainWindow(QtGui.QMainWindow):
             self.maxWlSpin.setEnabled(False)
             self.plotW.setAutoScaleWavelength(False)
         
-    def showPlot(self):
-        plotT = self.showTraceAction.isChecked()
-        plotS = self.showSpecAction.isChecked()
-        self.ptdAction.setEnabled(plotT)
-        self.scalePlotAction.setEnabled(plotS)
+    def showPlot(self,plotT, plotS):
         self.plotW.setShowPlot(plotT, plotS)
         
     def startMeasurement(self):
@@ -598,6 +568,29 @@ class MainWindow(QtGui.QMainWindow):
         except:
             pass
         return numFBGs
+        
+    def testSpectrometer(self):
+        print('Test for Spectrometer')
+        if self.si255:
+            if self.si255.comm.connected:
+                return 1
+            else:
+                return self.initDevice()
+        else:
+            return self.initDevice()
+            
+    def testThermometer(self):
+        print('Test for Thermometer')
+        try:
+            if not self.tempConnected:
+                self.connectTemp
+        except:
+            pass
+        if self.tempConnected:
+            return 1
+        else:
+            self.printError(6)
+            return 0
                 
     def tempActionToggled(self, state):
         if state:
@@ -612,6 +605,7 @@ class MainWindow(QtGui.QMainWindow):
         self.heatingTimer.setInterval(500)
         self.heatingTimer.timeout.connect(self.updateHeatingTimer)
         self.waitHeating = True
+        self.prodInfo.buttons.startButton.setEnabled(False)
         
     def activateCooling(self):
         self.__activateCooling = True
@@ -621,22 +615,29 @@ class MainWindow(QtGui.QMainWindow):
         self.setTime(ht)
         if ht >= self.__heatingTime:
             self.heatingTimer.stop()
-            peak = self.chan1IsLabel.text()
-            self.prodInfo.setPeakWavelength(peak)
-            temp = self.tempDisplay.text()
-            self.prodInfo.setTemp(temp)
-            self.prodInfo.buttons.startButton.setEnabled(True)
-            self.prodInfo.buttons.backButton.setEnabled(True)
-            self.prodInfo.buttons.stopButton.setEnabled(True)
-            self.setTime(0)
+#==============================================================================
+#             peak = self.chan1IsLabel.text()
+#             self.prodInfo.setPeakWavelength(peak)
+#             temp = self.tempDisplay.text()
+#             self.prodInfo.setTemp(temp)
+#             self.prodInfo.buttons.startButton.setEnabled(True)
+#             self.prodInfo.buttons.backButton.setEnabled(True)
+#             self.prodInfo.buttons.stopButton.setEnabled(True)
+#             self.setTime(0)
+#==============================================================================
                 
-      
+    def startProductionSequence(self):
+        if not self.testModus:
+            if not self.testSpectrometer(): return 0
+            if not self.testThermometer(): return 0
+        print('Starte neue Produktionssequenz')
+        self.prodInfo.startProduction()
+        
         
     def prodSequenzClicked(self):
-        
         if self.prodInfo.buttons.startButton.text() == 'Start':
-            print('Start')
-            self.prodInfo.startProduction()
+            self.startProductionSequence()
+            
         elif self.prodInfo.buttons.startButton.text() == 'Weiter':
             print('Next Step')
             if self.prodInfo.getProStep() < self.prodInfo.proStepNb[-1]-2:
@@ -649,8 +650,17 @@ class MainWindow(QtGui.QMainWindow):
                     self.prodInfo.buttons.startButton.setText('Neu')
                     self.prodInfo.nextProductionStep()
         elif self.prodInfo.buttons.startButton.text() == 'Neu':
-            print('Neu')
-            self.prodInfo.startProduction()
+            reply = QtGui.QMessageBox.question(self, 'Achtung',
+                                    unicode("""Es wird eine neue Produktionssequenz gestartet!
+                                    \n\n Wollen Sie wirklich fortfahren""", 'utf-8'), 
+                                    QtGui.QMessageBox.Yes, QtGui.QMessageBox.No)
+
+            if reply == QtGui.QMessageBox.Yes:
+                print('Neu')
+                self.startProductionSequence()
+            else:
+                return 0
+            
         else:
             print('Error Production Sequenz')
             
@@ -662,27 +672,24 @@ class MainWindow(QtGui.QMainWindow):
             for c in cond:
                 c = c.strip()
                 if c == 'fbg':
-                    if not self.testChannelForPeaks(1):
-                        QtGui.QMessageBox.critical(self,'Kein FBG gefunden',
-                                       unicode('Konnte keinen Peak detektieren. Bitte überprüfen Sie die angeschlossene Faser', 'utf-8'))
-                        return 0
+                    if not self.testModus:
+                        if not self.testChannelForPeaks(1):
+                            self.printError(0)
+                            return 0
                 elif c == 'ids':
-                    if not self.proID.text():
-                        QtGui.QMessageBox.critical(self,'Keine Produktions ID',
-                                       unicode('Bitte geben Sie eine Produktions-Identifikationsnummer ein.', 'utf-8'))
-                        return 0
-                    if not self.fbgID.text():
-                        QtGui.QMessageBox.critical(self,'Keine FBG ID',
-                                       unicode('Bitte geben Sie eine FBG-Identifikationsnummer ein.', 'utf-8'))
-                        return 0
-                    if not self.sensorID.text():
-                        QtGui.QMessageBox.critical(self,'Keine Sensor ID',
-                                       unicode('Bitte geben Sie eine Sensor -Identifikationsnummer ein.', 'utf-8'))
-                        return 0
-                    if not self.getIDs():
-                        QtGui.QMessageBox.critical(self,'Schreibfehler',
-                                       unicode('Konnte Identifikationsnummern nicht in Tabelle schreiben.', 'utf-8'))
-                        return 0
+                    if not self.testModus:
+                        if not self.proID.text():
+                            self.printError(1)
+                            return 0
+                        if not self.fbgID.text():
+                            self.printError(2)
+                            return 0
+                        if not self.sensorID.text():
+                            self.printError(3)
+                            return 0
+                        if not self.getIDs():
+                            self.printError(4)
+                            return 0
                 elif c == 'Zielwert':
                     tol = self.prodInfo.getTolaranz()
                     diff = abs(float(self.chan1IsLabel.text())-float(self.chan1SollLabel.text()))
@@ -701,7 +708,8 @@ class MainWindow(QtGui.QMainWindow):
     def parseProdMeas(self):
         meas = self.prodInfo.getProMeas()
         x = self.__scaledWavelength
-        y = None
+        y = self.getdBmSpec()
+        y = y[self.__scalePos]
         cenFit = 0.
         cenCoG = 0.
         fwhm = 0
@@ -714,51 +722,57 @@ class MainWindow(QtGui.QMainWindow):
                 m = m.strip()
                 if m == 'peak':
                     print('Measure Peak Wavelength')
-                    peak = self.chan1IsLabel.text()
-                    self.prodInfo.setPeakWavelength(peak)
+                    if not self.testModus:
+                        peak = self.chan1IsLabel.text()
+                        self.prodInfo.setPeakWavelength(peak)
                 elif m == 'spectrum':
                     print('Measure Spectrum')
-                    y = self.getdBmSpec()
-                    y = y[self.__scalePos]
-                    fname = self.saveSpectrum(x,y)
-                    self.prodInfo.setSpecFile(fname)
+                    if not self.testModus:
+                        y = self.getdBmSpec()
+                        y = y[self.__scalePos]
+                        fname = self.saveSpectrum(x,y)
+                        self.prodInfo.setSpecFile(fname)
                 elif m == 'fwhm':
                     print('Determine FWHM')
-                    cenFit, fwhm = self.peakFit(x,y,peak)
-                    self.prodInfo.setFWHM(fwhm)
+                    if not self.testModus:
+                        cenFit = self.peakFit(x,y)
+                        fwhm = self.calcFWHM(x,y)
+                        self.prodInfo.setFWHM(fwhm)
                 elif m == 'asymm':
                     print('Determine Asymmety Ratio')
-                    cenCoG = self.centerOfGravity(x,y, peak)
-                    asym = self.calculateAsym(cenFit, cenCoG)
-                    self.prodInfo.setAsymmetrie(asym)
+                    if not self.testModus:
+                        cenCoG = self.centerOfGravity(x,y, peak)
+                        asym = self.calculateAsym(cenFit, cenCoG)
+                        self.prodInfo.setAsymmetrie(asym)
                 elif m == 'temp':
                     print('Measure Temperature')
-                    temp = self.tempDisplay.text()
-                    self.prodInfo.setTemp(temp)
+                    if not self.testModus:
+                        temp = self.tempDisplay.text()
+                        self.prodInfo.setTemp(temp)
                 elif m == 'timer':
                     print('Activate heating Timer.')
-                    self.activateTimer()
+                    if not self.testModus:
+                        self.activateTimer()
                 elif m == 'cooling':
                     print('Wait for Temprature = 90°C')
-                    self.activateCooling()
+                    if not self.testModus:
+                        self.activateCooling()
    
 #### calculations
    
-    def peakFit(self, x, y, peak=None):
-        if len(x) == 0:
-            y = self.getdBmSpec()
-            y = y[self.__scalePos]
-            x = self.__scaledWavelength
-        y = np.power(10,y/10)
-        mod = GaussianModel()
-        pars = mod.guess(y, x=x)
-        out  = mod.fit(y, pars, x=x)
+    def peakFit(self, x, y):
+        p0 = [1550, 30, .2, -50]
+        popt, pcov = curve_fit(func, x, y, p0)
         
-        print(out.fit_report(min_correl=0.25))
-        center = out.best_values['center']
-        fwhm = out.best_values['sigma']*2.3548
+        return popt[0]
         
-        return center, fwhm#, amp
+    def calcFWHM(x,y):
+        hmdB = np.max(y) - 3
+        maxX = x[np.argmax(y)]
+        hmX = x[np.where((y> hmdB-.5) & (y< hmdB+.5) )[0]]
+        hm1 = np.mean(hmX[np.where(hmX < maxX)[0]])
+        hm2 = np.mean(hmX[np.where(hmX > maxX)[0]])
+        return abs(hm2-hm1)
    
     def centerOfGravity(self, x, y, peak=None):
         if len(x) == 0:
@@ -784,4 +798,22 @@ class MainWindow(QtGui.QMainWindow):
             return np.abs(pFit-pCOG)
         else:
             return 0
+            
+    def printError(self, errorCode):
+        errorHeader = ['Kein FBG gefunden',     #0
+                       'Keine Produktions ID',  #1
+                       'Keine FBG ID',          #2
+                       'Keine Sensor ID',       #3
+                       'Schreibfehler',         #4
+                       'Kein Spektrometer',     #5
+                       'Kein Thermometer']      #6
+                       
+        errorMessage = [unicode('Konnte keinen Peak detektieren. Bitte überprüfen Sie die angeschlossene Faser', 'utf-8'),
+                        unicode('Bitte geben Sie eine Produktions-Identifikationsnummer ein.', 'utf-8'),
+                        unicode('Bitte geben Sie eine FBG-Identifikationsnummer ein.', 'utf-8'),
+                        unicode('Bitte geben Sie eine Sensor-Identifikationsnummer ein.', 'utf-8'),
+                        unicode('Konnte Identifikationsnummern nicht in Tabelle schreiben.', 'utf-8'),
+                        unicode('Bitte überprüfen Sie ob das Spektrometer angeschaltet bzw. angeschlossen ist.', 'utf-8'),
+                        unicode('Bitte überprüfen Sie ob das Thermometer angeschaltet bzw. angeschlossen ist.', 'utf-8')]
         
+        QtGui.QMessageBox.critical(self,errorHeader[errorCode],errorMessage[errorCode])

@@ -8,7 +8,7 @@ Created on Tue Feb 02 16:50:13 2016
 import pyqtgraph as pg
 import numpy as np
 from pyqtgraph.Qt import QtGui, QtCore
-from lmfit.models import LinearModel
+from scipy import stats
 
 class Plot(QtGui.QSplitter):
     returnSlope = QtCore.pyqtSignal(str,str)
@@ -21,8 +21,7 @@ class Plot(QtGui.QSplitter):
         self.__sCurves = []
         self.__Trace = None
         self.__pCurves = []
-        self.__Regres = None
-        self.__regPoints = 50
+        self.__regPoints = 30
         self.__showReg = True
         self.__tracePoints = 1000
         self.lineWidth = 0
@@ -45,16 +44,9 @@ class Plot(QtGui.QSplitter):
         else:
             _x = x[-nop:]
             _y = y[-nop:]
-        mod = LinearModel()
-        pars = mod.make_params()
-        pars['slope'].set(0.0)
-        pars['intercept'].set(0.0)
-        out = mod.fit(_y, pars, x=_x)
-        slope = str("{0:.3f}".format(out.best_values['slope']*1000))
-        Dslope = str("{0:.3f}".format(np.std(np.abs(out.residual))*1000))
-        self.returnSlope.emit(slope, Dslope)
-        _time = self.setTimeLabel(_x)
-        self.__Regres.setData(_time, out.best_fit)
+        slope, intercept, r_value, p_value, std_err = stats.linregress(_x,_y)
+        self.returnSlope.emit(slope*1000)
+        
          
     def createPlotSpec(self):
         self.__sCurves = []
@@ -73,13 +65,10 @@ class Plot(QtGui.QSplitter):
         p.setLabel('bottom','Time')
         p.setLabel('left','Wavelength [nm]')
         self.__Trace = pg.PlotCurveItem(pen=QtGui.QPen(self.specColor,self.lineWidth))
-        self.__Regres = pg.PlotCurveItem(pen=QtGui.QPen(self.regColor,self.lineWidth))
         p.setBackground(pg.mkColor(self.backColor))
         
         p.addItem(self.__Trace)
-        p.addItem(self.__Regres)
         self.__pCurves.append(self.__Trace)
-        self.__pCurves.append(self.__Regres)
         return p       
 
     def getSpektrum(self):
@@ -103,10 +92,6 @@ class Plot(QtGui.QSplitter):
         if self.__showReg and nop>1:
             self.calculateSlope(_x,_y)
         
-    def setRegPoints(self, points=None):
-        if points:
-            self.__regPoints = points
-            
     def setShowPlot(self, plotT = True, plotS = True):
         if plotT:
             self.__plotTrace.show()
