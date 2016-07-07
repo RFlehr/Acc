@@ -41,6 +41,7 @@ class OptionDialog(QtGui.QDialog):
         self.__showSpec = True
         self.__minWl = 1540.
         self.__maxWl = 1570.
+        self.__regPoints = 50
 
         self.loadSettings()
                 
@@ -154,9 +155,9 @@ class OptionDialog(QtGui.QDialog):
         self.minWlSpin.setRange(1460.0,1615.0)
         self.minWlSpin.setValue(self.__minWl)
         self.minWlSpin.valueChanged.connect(self.setWlScale)
-        line+=1
         gl.addWidget(minWlL,line,0)
         gl.addWidget(self.minWlSpin,line,2)  
+        line+=1
         
         minWlL  = QtGui.QLabel(text=unicode('Wellenlänge max', 'utf-8'))        
         self.maxWlSpin = QtGui.QDoubleSpinBox()
@@ -166,9 +167,24 @@ class OptionDialog(QtGui.QDialog):
         self.maxWlSpin.setRange(1465.0, 1620.0)
         self.maxWlSpin.setValue(self.__maxWl)
         self.maxWlSpin.valueChanged.connect(self.setWlScale)
-        line+=1
         gl.addWidget(minWlL,line,0)
         gl.addWidget(self.maxWlSpin,line,2)  
+        line+=1
+        
+        ## Analysis
+        analyseL  = QtGui.QLabel(text='Analyse:')
+        gl.addWidget(analyseL,line,0)
+        line+=1
+        
+        regL = QtGui.QLabel(text=unicode('Punkte für Regression','utf-8'))
+        spReg = QtGui.QSpinBox()
+        spReg.setAlignment(QtCore.Qt.AlignRight)
+        spReg.setRange(5,200)
+        spReg.setValue(self.__regPoints)
+        spReg.valueChanged.connect(self.setRegPoints)
+        gl.addWidget(regL,line,0)
+        gl.addWidget(spReg,line,2)  
+        line+=1
         
         return plotW
         
@@ -348,6 +364,7 @@ class OptionDialog(QtGui.QDialog):
         self.__showSpec = int(settings.value('ShowSpec', self.__showSpec))
         self.__minWl = float(settings.value('MinWl', self.__minWl))
         self.__maxWl = float(settings.value('MaxWl', self.__maxWl))
+        self.__regPoints = int(settings.value('RegPoints', self.__regPoints))
         settings.endGroup()
         
     def saveSettings(self):
@@ -379,10 +396,14 @@ class OptionDialog(QtGui.QDialog):
         settings.setValue('ShowSpec', self.__showSpec)
         settings.setValue('MinWl', self.__minWl)
         settings.setValue('MaxWl', self.__maxWl)
+        settings.setValue('RegPoints', self.__regPoints)
         settings.endGroup()
         
     def setBuffer(self, val):
         self.__maxBuffer = val
+        
+    def setRegPoints(self, val):
+        self.__regPoints = val
         
     def setShowTrace(self, val):
         self.__showTrace = val

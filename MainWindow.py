@@ -11,8 +11,8 @@ __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.4.2'
-__date__ = '04.03.2016'
+__version__ = '0.5.0'
+__date__ = '07.07.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
 
@@ -21,7 +21,7 @@ sys.path.append('../')
 
 from pyqtgraph.Qt import QtGui, QtCore
 import plot as pl
-import hyperion, time, os
+import hyperion, time, os, Queue
 import numpy as np
 from scipy.ndimage.interpolation import shift
 from qwt_widgets import SlopeMeter
@@ -30,6 +30,8 @@ from tc08usb import TC08USB, USBTC08_TC_TYPE, USBTC08_ERROR#, USBTC08_UNITS
 #from lmfit.models import GaussianModel
 from scipy.optimize import curve_fit
 from options import OptionDialog
+from Monitor import MonitorHyperionThread, MonitorTC08USBThread
+
 
 
 class MainWindow(QtGui.QMainWindow):
@@ -53,7 +55,7 @@ class MainWindow(QtGui.QMainWindow):
         
         
         
-        self.testModus = True
+        self.testModus = 0
         
         
         self.updateTimer = QtCore.QTimer()
@@ -118,9 +120,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.si255 = hyperion.Hyperion(comm = si255Comm)
                 self.isConnected=True
                 self.__wavelength =np.array(self.si255.wavelengths)
-                _min = self.minWlSpin.value()
-                _max = self.maxWlSpin.value()
-                self.__scalePos = np.where((self.__wavelength>=_min) & (self.__wavelength<_max))[0]
+                self.__scalePos = np.where((self.__wavelength>=self.__minWl) & (self.__wavelength<self.__maxWl))[0]
                 self.__scaledWavelength = self.__wavelength[self.__scalePos]
                 self.setActionState()   
                 return 1
@@ -151,8 +151,8 @@ class MainWindow(QtGui.QMainWindow):
         font = QtGui.QFont()
         font.setBold(True)
         font.setPointSize(24)
-        tol = self.prodInfo.getTolaranz()
         if not self.chan1SollLabel.text() == '----.---':
+            tol = self.prodInfo.getTolaranz()
             diff = abs(float(self.chan1IsLabel.text())-float(self.chan1SollLabel.text()))
             #print(diff, self.sollGreen[self.prodStep], self.sollGreen[self.prodStep]*3)
             if diff <= tol:
@@ -185,11 +185,12 @@ class MainWindow(QtGui.QMainWindow):
         try:
             self.tc08usb = TC08USB(dll_path = dll_path)
             if self.tc08usb.open_unit():
-                self.tc08usb.set_mains(50)
-                self.tc08usb.set_channel(1, USBTC08_TC_TYPE.K)
-                self.getTemp()
+                self.tempQ = Queue.Queue(100)
                 self.tempConnected = True
-                self.updateTempTimer.start(1000)
+                self.tempMon = MonitorTC08USBThread(self.tc08usb, self.tempQ)
+                self.tempMon.start()
+                self.tempConnected = True
+                self.updateTempTimer.start(150)
             else:
                 self.tempConnected = False
                 self.connectTempAction.setChecked(False)
@@ -371,34 +372,51 @@ class MainWindow(QtGui.QMainWindow):
     def disconnectTemp(self):
         if self.updateTempTimer.isActive():
             self.updateTempTimer.stop()
-        if self.tempConnected:
-                    self.tc08usb.close_unit()
+        if self.tempMon:
+            if self.tempMon.alive.isSet():
+                self.tempMon.join()
+        self.tempMon = None
+        self.tc08usb.close_unit()
+        self.tc08usb = None
         self.tempConnected = False
+        self.tempDisplay = QtGui.QLabel(text=u'-.- \u00b0C')
+        
+    def getAllFromQueue(self, Q):
+        """ Generator to yield one after the others all items 
+            currently in the queue Q, without any waiting.
+        """
+        try:
+            while True:
+                yield Q.get_nowait( )
+        except Queue.Empty:
+            raise StopIteration
    
     def getData(self):
         #get spectra
-        y = self.getdBmSpec()
-        y = y[self.__scalePos]
-        wl = self.__scaledWavelength
-        if self.showSpecAction.isChecked():
-            self.plotW.plotS(wl,y)
+        data, timestamp, success  = self.readDataFromQ()
+        if not success: 
+            return None
         
+        self.dbmData = data[0]
+        actualTime = timestamp-self.startTime
+        
+        wl = self.__scaledWavelength
+        self.plotW.plotS(wl,self.dbmData)
         #get peak data
-        numVal = self.getPeakData(wl, y)
-        if self.showTraceAction.isChecked():
-            if numVal:
-                self.plotW.plotT(self.peaksTime[:numVal-1], self.peaks[:numVal-1])
-            
-                   
-        now = time.time()
-        dt = now - self.lastTime
-        if self.fps is None:
-             self.fps = 1.0/dt
+        numVal = self.getPeakData(wl, self.dbmData, actualTime)
+        self.plotW.plotT(self.peaksTime[:numVal-1], self.peaks[:numVal-1])
+                
+    def readDataFromQ(self):
+        qData = list(list(self.getAllFromQueue(self.dataQ)))
+        timestamp = 0
+        d = None
+        if len(qData) > 0:
+            d = np.array(qData[-1][0])
+            timestamp = qData[-1][1]
+            d = d[:,self.__scalePos]
+            return d, timestamp , 1
         else:
-             s = np.clip(dt*3., 0, 1)
-             self.fps = self.fps * (1-s) + (1.0/dt) * s
-        self.statusBar().showMessage('%0.2f Hz' % (self.fps))
-        self.lastTime = now
+            return 0,0,0
         
     def getdBmSpec(self):
         try:
@@ -416,9 +434,8 @@ class MainWindow(QtGui.QMainWindow):
         er = self.prodInfo.setIDs(pro, fbg, sensor)        
         return er
         
-    def getPeakData(self, wl, dbmData):
+    def getPeakData(self, wl, dbmData, timestamp):
         peak = self.peakFit(wl, dbmData)
-        timestamp = time.clock() - self.startTime
         numVal = np.count_nonzero(self.peaks)
         self.chan1IsLabel.setText(str("{0:.3f}".format(peak)))
         self.calculateLabelColor()
@@ -445,8 +462,11 @@ class MainWindow(QtGui.QMainWindow):
         return numVal
         
     def getTemp(self):
-        self.tc08usb.get_single()
-        temp = self.tc08usb[1]
+        try: 
+            temp = self.tempQ.get(True, 0.01)
+            
+        except Queue.Empty:
+            return None
         tempStr = str("{0:.1f}".format(temp)) + u' \u00b0C'
         self.tempDisplay.setText(tempStr)
 
@@ -467,21 +487,23 @@ class MainWindow(QtGui.QMainWindow):
         self.__heatingStartWl = vorSp + deltaHeating
         
         settings.beginGroup('Plot')
-        self.setBuffer(int(settings.value('Buffer')))
+        self.__maxBuffer = int(settings.value('Buffer'))
         self.plotW.setTracePoints(int(settings.value('TracePunkte')))
         showTrace = int(settings.value('ShowTrace'))
         showSpec = int(settings.value('ShowSpec'))
         minWl = float(settings.value('MinWl'))
         maxWl = float(settings.value('MaxWl'))
+        regPoints = int(settings.value('RegPoints'))
         settings.endGroup()
         self.showPlot(showTrace,showSpec)
         self.scaleInputSpectrum(minWl,maxWl)
+        self.setBuffer()
+        self.plotW.setRegPoints(regPoints)
         print('Einstellungen Hauptfenster wurden geladen')        
     
     def saveSpectrum(self, x, y):
         if len(x) == 0:
-            y = self.getdBmSpec()
-            y = y[self.__scalePos]
+            y = self.dbmData
             x = self.__scaledWavelength
         fname = time.strftime('%Y%m%d_%H%M%S') + self.sensorID.text() + '.spc'
         _file = os.path.join(str(self.specFolder) , str(fname))  
@@ -493,7 +515,9 @@ class MainWindow(QtGui.QMainWindow):
         return fname
             
     def scaleInputSpectrum(self,_min,_max):
-        self.__scalePos = np.where((self.__wavelength>=_min)&(self.__wavelength<=_max))[0]
+        self.__minWl = _min
+        self.__maxWl = _max
+        self.__scalePos = np.where((self.__wavelength>=self.__minWl)&(self.__wavelength<=self.__maxWl))[0]
         self.__scaledWavelength = self.__wavelength[self.__scalePos]
         
     def setActionState(self):
@@ -512,9 +536,9 @@ class MainWindow(QtGui.QMainWindow):
             self.startAction.setEnabled(False)
             self.stopAction.setEnabled(False)
             
-    def setBuffer(self,maxBuffer):
-        self.peaks = np.zeros(maxBuffer)
-        self.peaksTime = np.zeros(maxBuffer)
+    def setBuffer(self):
+        self.peaks = np.zeros(self.__maxBuffer)
+        self.peaksTime = np.zeros(self.__maxBuffer)
             
     def setProdIDs(self, proID, sensorID):
         self.proID.setText(proID)
@@ -522,7 +546,7 @@ class MainWindow(QtGui.QMainWindow):
         self.sensorID.setText(sensorID)
             
     def setSlope(self, slope):
-        self.slopeCh1Dial.setSlope(float(slope))
+        self.slopeCh1Dial.setSlope(slope)
         
     def setTime(self, sec):
         m, s = divmod(sec, 60)
@@ -543,16 +567,26 @@ class MainWindow(QtGui.QMainWindow):
         self.plotW.setShowPlot(plotT, plotS)
         
     def startMeasurement(self):
-        self.startTime = time.clock()
-        self.lastTime= self.startTime
-        self.fps=None
-        self.peaks = np.zeros(self.__maxBuffer)
+        self.setBuffer()
+        self.startTime = time.time()
+        #initialize Queue
+        self.dataQ = Queue.Queue(100)
+        #self.initTempArray()
+        self.Monitor = MonitorHyperionThread(self.dataQ, self.si255, 
+                                         channelList=[1,], specDevider=1)
+        self.Monitor.start()
         self.updateTimer.start(100)
         self.measurementActive = True
         self.setActionState()
         
     def stopMeasurement(self):
         self.updateTimer.stop()
+        try:
+            self.Monitor.join(0.1)
+        except:
+            pass
+        self.Monitor = None
+        self.si255.disable_spectrum_streaming()
         self.measurementActive = False
         self.setActionState()
     
@@ -708,8 +742,7 @@ class MainWindow(QtGui.QMainWindow):
     def parseProdMeas(self):
         meas = self.prodInfo.getProMeas()
         x = self.__scaledWavelength
-        y = self.getdBmSpec()
-        y = y[self.__scalePos]
+        y = self.dbmData
         cenFit = 0.
         cenCoG = 0.
         fwhm = 0
@@ -728,8 +761,6 @@ class MainWindow(QtGui.QMainWindow):
                 elif m == 'spectrum':
                     print('Measure Spectrum')
                     if not self.testModus:
-                        y = self.getdBmSpec()
-                        y = y[self.__scalePos]
                         fname = self.saveSpectrum(x,y)
                         self.prodInfo.setSpecFile(fname)
                 elif m == 'fwhm':
@@ -761,24 +792,24 @@ class MainWindow(QtGui.QMainWindow):
 #### calculations
    
     def peakFit(self, x, y):
-        p0 = [1550, 30, .2, -50]
-        popt, pcov = curve_fit(func, x, y, p0)
-        
+        p0 = [x[np.argmax(y)], 30, .2, -60]
+        #y = np.power(10,y/10)
+        popt, pcov = curve_fit(self.gauss, x, y, p0)
+        #self.plotW.plotS(x,self.gauss(x, popt[0],popt[1],popt[2],popt[3]))
+        #print(popt)
         return popt[0]
         
-    def calcFWHM(x,y):
+    def calcFWHM(self, x,y):
         hmdB = np.max(y) - 3
         maxX = x[np.argmax(y)]
         hmX = x[np.where((y> hmdB-.5) & (y< hmdB+.5) )[0]]
         hm1 = np.mean(hmX[np.where(hmX < maxX)[0]])
         hm2 = np.mean(hmX[np.where(hmX > maxX)[0]])
-        return abs(hm2-hm1)
+        fwhm = abs(hm2-hm1)
+        print('FWHM: %s'% fwhm)
+        return fwhm
    
     def centerOfGravity(self, x, y, peak=None):
-        if len(x) == 0:
-            y = self.getdBmSpec()
-            y = y[self.__scalePos]
-            x = self.__scaledWavelength
         y = np.power(10,y/10)
         if not peak:
             pos = np.where(y>(np.max(y)*.3))[0]
@@ -798,6 +829,15 @@ class MainWindow(QtGui.QMainWindow):
             return np.abs(pFit-pCOG)
         else:
             return 0
+            
+    def gauss(self,x, center, amp, sig, off):
+        up = x - center
+        up2 = up*up
+        down = 2*sig*sig
+        frac = up2/down * -1
+        _exp = np.exp(frac)
+        
+        return amp*_exp + off
             
     def printError(self, errorCode):
         errorHeader = ['Kein FBG gefunden',     #0

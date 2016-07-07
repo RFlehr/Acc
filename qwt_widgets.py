@@ -17,8 +17,8 @@ class SlopeMeter(QwtDial):
         self.setWrapping(False)
         self.setReadOnly(True)
         
-        self.__min = -2
-        self.__max = 2
+        self.__min = -3
+        self.__max = 3
         self.__inkr = .5
 
         self.setOrigin(225.0)

@@ -11,7 +11,7 @@ from pyqtgraph.Qt import QtGui, QtCore
 from scipy import stats
 
 class Plot(QtGui.QSplitter):
-    returnSlope = QtCore.pyqtSignal(str,str)
+    returnSlope = QtCore.pyqtSignal(float)
     def __init__(self, parent=None):
         QtGui.QSplitter.__init__(self, parent)
         
@@ -36,7 +36,7 @@ class Plot(QtGui.QSplitter):
         self.addWidget(self.__plotTrace)
         self.addWidget(self.__plotSpec)
         
-    def calculateSlope(self, x, y, numPoints = 50):
+    def calculateSlope(self, x, y):
         nop = self.__regPoints
         if nop > len(x):
             _x=x
@@ -91,6 +91,9 @@ class Plot(QtGui.QSplitter):
         self.__Trace.setData(time, _y)
         if self.__showReg and nop>1:
             self.calculateSlope(_x,_y)
+            
+    def setRegPoints(self, points):
+        self.__regPoints = points
         
     def setShowPlot(self, plotT = True, plotS = True):
         if plotT:
