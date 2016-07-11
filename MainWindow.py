@@ -11,7 +11,7 @@ __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.5.0'
+__version__ = '0.5.1'
 __date__ = '07.07.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
@@ -55,7 +55,7 @@ class MainWindow(QtGui.QMainWindow):
         
         
         
-        self.testModus = 0
+        self.testModus = 1
         
         
         self.updateTimer = QtCore.QTimer()
@@ -97,6 +97,8 @@ class MainWindow(QtGui.QMainWindow):
         self.prodInfo.emitSoll.connect(self.chan1SollLabel.setText)
         self.prodInfo.emitProdIds.connect(self.setProdIDs)
         self.prodInfo.buttons.startButton.clicked.connect(self.prodSequenzClicked)
+        self.prodInfo.buttons.backButton.clicked.connect(self.prodSequenzBack)
+        self.prodInfo.buttons.stopButton.clicked.connect(self.proSequenzCancel)
         
         self.loadSettings()
 
@@ -191,11 +193,13 @@ class MainWindow(QtGui.QMainWindow):
                 self.tempMon.start()
                 self.tempConnected = True
                 self.updateTempTimer.start(150)
+                return 1
             else:
                 self.tempConnected = False
                 self.connectTempAction.setChecked(False)
                 QtGui.QMessageBox.critical(self,'Connection Error',
                                        'Could not connect to TC08-USB. Please try again')
+                return 0
                 
         except USBTC08_ERROR as e:
             print(e)
@@ -363,10 +367,14 @@ class MainWindow(QtGui.QMainWindow):
         self.addActions(self.toolbar, (self.connectAction, self.connectTempAction, None, self.startAction, self.stopAction))#, self.importFileAction, self.importLogAction, self.exportData, None,self.showOptAction,None,self.fitAction, self.showFitAction))
         
     def openOptionsDialog(self):
-        option = OptionDialog()
-        if option.exec_():
-            self.prodInfo.loadSettings()
-            self.loadSettings()
+        
+        passW, ok = QtGui.QInputDialog.getText(self,"Optionen", "Bitte Password eingeben")
+        
+        if ok and passW == 'Test':
+            option = OptionDialog()
+            if option.exec_():
+                self.prodInfo.loadSettings()
+                self.loadSettings()
             pass
             
     def disconnectTemp(self):
@@ -444,13 +452,10 @@ class MainWindow(QtGui.QMainWindow):
                 self.heatingTimer.start()
                 self.waitHeating = False
                 self.prodInfo.buttons.startButton.setEnabled(True)
+                self.prodInfo.buttons.backButton.setEnabled(False)
+                self.prodInfo.buttons.stopButton.setEnabled(False)
                 self.__heatingStartTime = time.time()
-#==============================================================================
-#                 
-#                 self.prodInfo.buttons.startButton.setEnabled(False)
-#                 self.prodInfo.buttons.backButton.setEnabled(False)
-#                 self.prodInfo.buttons.stopButton.setEnabled(False)
-#==============================================================================
+
                 
         if numVal < self.__maxBuffer:
             self.peaks[numVal] = peak
@@ -605,13 +610,16 @@ class MainWindow(QtGui.QMainWindow):
         
     def testSpectrometer(self):
         print('Test for Spectrometer')
-        if self.si255:
-            if self.si255.comm.connected:
-                return 1
+        try:
+            if self.si255:
+                if self.si255.comm.connected:
+                    return 1
+                else:
+                    return self.initDevice()
             else:
                 return self.initDevice()
-        else:
-            return self.initDevice()
+        except:
+            pass
             
     def testThermometer(self):
         print('Test for Thermometer')
@@ -640,6 +648,7 @@ class MainWindow(QtGui.QMainWindow):
         self.heatingTimer.timeout.connect(self.updateHeatingTimer)
         self.waitHeating = True
         self.prodInfo.buttons.startButton.setEnabled(False)
+        self.__timerLabel.setStyleSheet("color: black")
         
     def activateCooling(self):
         self.__activateCooling = True
@@ -649,6 +658,7 @@ class MainWindow(QtGui.QMainWindow):
         self.setTime(ht)
         if ht >= self.__heatingTime:
             self.heatingTimer.stop()
+            self.__timerLabel.setStyleSheet("color: green")
 #==============================================================================
 #             peak = self.chan1IsLabel.text()
 #             self.prodInfo.setPeakWavelength(peak)
@@ -662,8 +672,12 @@ class MainWindow(QtGui.QMainWindow):
                 
     def startProductionSequence(self):
         if not self.testModus:
-            if not self.testSpectrometer(): return 0
-            if not self.testThermometer(): return 0
+            if not self.testSpectrometer(): 
+                return 0
+            if not self.testThermometer(): 
+                return 0
+            if not self.measurementActive:
+                self.startMeasurement()
         print('Starte neue Produktionssequenz')
         self.prodInfo.startProduction()
         
@@ -697,6 +711,14 @@ class MainWindow(QtGui.QMainWindow):
             
         else:
             print('Error Production Sequenz')
+            
+    def prodSequenzBack(self):
+        if self.prodInfo.getProStep() > 0:
+            self.prodInfo.productionSequenzBack()
+            
+    def proSequenzCancel(self):
+        self.prodInfo.productionSequenzCancel()
+            
             
     def parseProdCondition(self):
         cond = self.prodInfo.getProCondition()
@@ -740,54 +762,55 @@ class MainWindow(QtGui.QMainWindow):
         return 1
      
     def parseProdMeas(self):
-        meas = self.prodInfo.getProMeas()
-        x = self.__scaledWavelength
-        y = self.dbmData
-        cenFit = 0.
-        cenCoG = 0.
-        fwhm = 0
-        asym = 0.
-        peak = 0.
-        if meas:
-            meas = meas.split(',')
-            #print (meas)
-            for m in meas:
-                m = m.strip()
-                if m == 'peak':
-                    print('Measure Peak Wavelength')
-                    if not self.testModus:
-                        peak = self.chan1IsLabel.text()
-                        self.prodInfo.setPeakWavelength(peak)
-                elif m == 'spectrum':
-                    print('Measure Spectrum')
-                    if not self.testModus:
-                        fname = self.saveSpectrum(x,y)
-                        self.prodInfo.setSpecFile(fname)
-                elif m == 'fwhm':
-                    print('Determine FWHM')
-                    if not self.testModus:
-                        cenFit = self.peakFit(x,y)
-                        fwhm = self.calcFWHM(x,y)
-                        self.prodInfo.setFWHM(fwhm)
-                elif m == 'asymm':
-                    print('Determine Asymmety Ratio')
-                    if not self.testModus:
-                        cenCoG = self.centerOfGravity(x,y, peak)
-                        asym = self.calculateAsym(cenFit, cenCoG)
-                        self.prodInfo.setAsymmetrie(asym)
-                elif m == 'temp':
-                    print('Measure Temperature')
-                    if not self.testModus:
-                        temp = self.tempDisplay.text()
-                        self.prodInfo.setTemp(temp)
-                elif m == 'timer':
-                    print('Activate heating Timer.')
-                    if not self.testModus:
-                        self.activateTimer()
-                elif m == 'cooling':
-                    print('Wait for Temprature = 90°C')
-                    if not self.testModus:
-                        self.activateCooling()
+        if not self.testModus:
+            meas = self.prodInfo.getProMeas()
+            x = self.__scaledWavelength
+            y = self.dbmData
+            cenFit = 0.
+            cenCoG = 0.
+            fwhm = 0
+            asym = 0.
+            peak = 0.
+            if meas:
+                meas = meas.split(',')
+                #print (meas)
+                for m in meas:
+                    m = m.strip()
+                    if m == 'peak':
+                        print('Measure Peak Wavelength')
+                        if not self.testModus:
+                            peak = self.chan1IsLabel.text()
+                            self.prodInfo.setPeakWavelength(peak)
+                    elif m == 'spectrum':
+                        print('Measure Spectrum')
+                        if not self.testModus:
+                            fname = self.saveSpectrum(x,y)
+                            self.prodInfo.setSpecFile(fname)
+                    elif m == 'fwhm':
+                        print('Determine FWHM')
+                        if not self.testModus:
+                            cenFit = self.peakFit(x,y)
+                            fwhm = self.calcFWHM(x,y)
+                            self.prodInfo.setFWHM(fwhm)
+                    elif m == 'asymm':
+                        print('Determine Asymmety Ratio')
+                        if not self.testModus:
+                            cenCoG = self.centerOfGravity(x,y, peak)
+                            asym = self.calculateAsym(cenFit, cenCoG)
+                            self.prodInfo.setAsymmetrie(asym)
+                    elif m == 'temp':
+                        print('Measure Temperature')
+                        if not self.testModus:
+                            temp = self.tempDisplay.text()
+                            self.prodInfo.setTemp(temp)
+                    elif m == 'timer':
+                        print('Activate heating Timer.')
+                        if not self.testModus:
+                            self.activateTimer()
+                    elif m == 'cooling':
+                        print('Wait for Temprature = 90°C')
+                        if not self.testModus:
+                            self.activateCooling()
    
 #### calculations
    
@@ -857,3 +880,9 @@ class MainWindow(QtGui.QMainWindow):
                         unicode('Bitte überprüfen Sie ob das Thermometer angeschaltet bzw. angeschlossen ist.', 'utf-8')]
         
         QtGui.QMessageBox.critical(self,errorHeader[errorCode],errorMessage[errorCode])
+        
+class PassDialog(QtGui.QInputDialog):
+    def __init__(self, *args):
+        QtGui.QInputDialog.__init__(self, *args)
+        
+        

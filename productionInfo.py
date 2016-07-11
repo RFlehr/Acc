@@ -45,6 +45,7 @@ class ProductionInfo(QtGui.QWidget):
         self.__log = None #Excel worksheet for data storage
         self.__logRow = 5 #start row, will set to actual row
         self.__proId = ''
+        self.__year = 2016
         
         self.__step = 0
         
@@ -67,12 +68,17 @@ class ProductionInfo(QtGui.QWidget):
         #self.buttons.startButton.clicked.connect(self.prodSequenzClicked)
     
     def generateIDs(self):
-        id = self.__proId.split('-')
-        num = int(id[-1])+1
-        proID = str(id[0])+str('-')+str(num).zfill(4)
-        sensorID = self.__log['C'+str(self.__logRow-1)].value
-        id = sensorID
-        num = int(id)+1
+        if self.__proId:
+            id = self.__proId.split('-')
+            num = int(id[-1])+1
+            proID = str(id[0])+str('-')+str(num).zfill(4)
+        else:
+            proID = str(self.__year)+str('-')+str(1).zfill(4)
+        if self.__logRow > 5:
+            sensorID = self.__log['C'+str(self.__logRow-1)].value
+        else: 
+            sensorID = 0
+        num = int(sensorID)+1
         sensorID = str(num).zfill(4)
         self.emitProdIds.emit(proID, sensorID)
         
@@ -169,6 +175,23 @@ class ProductionInfo(QtGui.QWidget):
         settings.endGroup()
         print('Einstellungen Produktionsverlauf wurden geladen')
         
+    def productionSequenzBack(self):
+        self.__step -= 2
+        self.nextProductionStep()
+        
+    def productionSequenzCancel(self):
+        self.__log['A'+str(self.__logRow)].value = ''
+        reply = QtGui.QMessageBox.question(self, 'Achtung',
+                                    unicode("""Es wird eine neue Produktionssequenz gestartet!
+                                    \n\n Wollen Sie wirklich fortfahren""", 'utf-8'), 
+                                    QtGui.QMessageBox.Yes, QtGui.QMessageBox.No)
+
+        if reply == QtGui.QMessageBox.Yes:
+            print('Neu')
+            self.startProduction()
+        else:
+            return 0
+       
         
     def setIDs(self, pro, fbg, sensor):
         self.__log['A'+str(self.__logRow)].value = str(pro)
@@ -269,7 +292,7 @@ class ProductionInfo(QtGui.QWidget):
         if self.__step < self.proStepNb[-1]:
             self.makeProTxt(self.__step)
             #self.chan1SollLabel.setText()
-        if self.__step > 0:
+        if self.__step > 1:
             self.buttons.backButton.setEnabled(True)
         
     def startProduction(self):
