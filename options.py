@@ -24,7 +24,7 @@ class OptionDialog(QtGui.QDialog):
         self.__finalTemp = 90.
         self.__wavelengthSi = 1550.3
         self.__deltaSi = 0.1
-        self.__returnLossMin = -50 #dBm
+        self.__deltaReturnLoss = 5 #dBm
         self.__returnLoss = -55 #dBm
         self.__windowRL = 2 # nm
         
@@ -283,29 +283,28 @@ class OptionDialog(QtGui.QDialog):
         gl.addWidget(QtGui.QLabel(text=pm),5,2)
         gl.addWidget(spDSi,5,3)
         
-        rlml = QtGui.QLabel(text='Return Loss Min [dBm]')
+        rlml = QtGui.QLabel(text='Return Loss [dBm]')
         gl.addWidget(rlml,6,0)
         
         spRlM = QtGui.QSpinBox()
         spRlM.setAlignment(QtCore.Qt.AlignRight)
         spRlM.setRange(-60,-50)
-        spRlM.setValue(self.__returnLossMin)
-        spRlM.valueChanged.connect(self.setReturnLossMin)
+        spRlM.setValue(self.__returnLoss)
+        spRlM.valueChanged.connect(self.setReturnLoss)
+        
+        spDRl = QtGui.QSpinBox()
+        spDRl.setAlignment(QtCore.Qt.AlignRight)
+        spDRl.setRange(1,10)
+        spDRl.setValue(self.__deltaReturnLoss)
+        spDRl.valueChanged.connect(self.setDeltaReturnLoss)
         gl.addWidget(spRlM,6,1)
+        gl.addWidget(QtGui.QLabel(text=pm),6,2)
+        gl.addWidget(spDRl,6,3)
         
-        rll = QtGui.QLabel(text='Return Loss [dBm]')
-        gl.addWidget(rll,7,0)
-        
-        spRl = QtGui.QSpinBox()
-        spRl.setAlignment(QtCore.Qt.AlignRight)
-        spRl.setRange(-60,-50)
-        spRl.setValue(self.__returnLoss)
-        spRl.valueChanged.connect(self.setReturnLoss)
-        gl.addWidget(spRl,7,1)
                 
         
         wrll = QtGui.QLabel(text='Window RL [nm]')
-        gl.addWidget(wrll, 8,0)
+        gl.addWidget(wrll, 7,0)
         
         spWRL = QtGui.QDoubleSpinBox()
         spWRL.setRange(.5,5)
@@ -313,7 +312,7 @@ class OptionDialog(QtGui.QDialog):
         spWRL.setAlignment(QtCore.Qt.AlignRight)
         spWRL.setDecimals(1)
         spWRL.valueChanged.connect(self.setWindowRL)
-        gl.addWidget(spWRL,8,1)
+        gl.addWidget(spWRL,7,1)
         
         
         proW = QtGui.QWidget()
@@ -346,8 +345,8 @@ class OptionDialog(QtGui.QDialog):
         self.__finalTemp = float(settings.value('Endtemp', self.__finalTemp))
         self.__wavelengthSi = float(settings.value('SiVerklebung', self.__wavelengthSi))
         self.__deltaSi = float(settings.value('DeltaSiVerklebung', self.__deltaSi))
-        self.__returnLossMin = int(settings.value('returnLossMin', self.__returnLossMin))
         self.__returnLoss = int(settings.value('returnLoss', self.__returnLoss))
+        self.__deltaReturnLoss = int(settings.value('DeltaReturnLoss', self.__deltaReturnLoss))
         self.__windowRL = float(settings.value('windowRL', self.__windowRL))
         settings.endGroup()
         
@@ -379,8 +378,8 @@ class OptionDialog(QtGui.QDialog):
         settings.setValue('Endtemp', self.__finalTemp)
         settings.setValue('SiVerklebung', self.__wavelengthSi)
         settings.setValue('DeltaSiVerklebung', self.__deltaSi)
-        settings.setValue('returnLossMin', self.__returnLossMin)
         settings.setValue('returnLoss', self.__returnLoss)
+        settings.setValue('DeltaReturnLoss', self.__deltaReturnLoss)
         settings.setValue('windowRL', self.__windowRL)
         settings.endGroup()
         
@@ -441,11 +440,11 @@ class OptionDialog(QtGui.QDialog):
     def setDSiWl(self, val):
         self.__deltaSi = val
         
-    def setReturnLossMin(self, val):
-        self.__returnLossMin = val
-        
     def setReturnLoss(self, val):
         self.__returnLoss = val
+        
+    def setDeltaReturnLoss(self, val):
+        self.__deltaReturnLoss = val
         
     def setWindowRL(self, val):
         self.__windowRL = val

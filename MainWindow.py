@@ -11,7 +11,7 @@ __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.5.1'
+__version__ = '0.6.0    '
 __date__ = '07.07.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
@@ -30,6 +30,7 @@ from tc08usb import TC08USB, USBTC08_TC_TYPE, USBTC08_ERROR#, USBTC08_UNITS
 #from lmfit.models import GaussianModel
 from scipy.optimize import curve_fit
 from options import OptionDialog
+from MyDialogs import NewSensorDialog
 from Monitor import MonitorHyperionThread, MonitorTC08USBThread
 
 
@@ -55,7 +56,7 @@ class MainWindow(QtGui.QMainWindow):
         
         
         
-        self.testModus = 1
+        self.testModus = 0
         
         
         self.updateTimer = QtCore.QTimer()
@@ -63,7 +64,7 @@ class MainWindow(QtGui.QMainWindow):
         self.updateTempTimer = QtCore.QTimer()
         self.updateTempTimer.timeout.connect(self.getTemp)
         self.startTime = None
-        
+        self.heatingTimer = QtCore.QTimer()
         
         self.setWindowTitle(__title__ + ' ' + __version__)
         self.resize(900, 600)
@@ -74,6 +75,7 @@ class MainWindow(QtGui.QMainWindow):
         self.__activateCooling = False
         self.__finalTemp = 90
         self.cogSpectralWin = 2.5
+        self.__SpecWinRL = 2
         
         mainVSplit = QtGui.QSplitter()
         mainVSplit.setOrientation(QtCore.Qt.Vertical)
@@ -94,11 +96,11 @@ class MainWindow(QtGui.QMainWindow):
         self.slopeCh1Dial.setSlope(0)
         self.setActionState()
         
-        self.prodInfo.emitSoll.connect(self.chan1SollLabel.setText)
+        self.prodInfo.emitSoll.connect(self.setSollLabel)
         self.prodInfo.emitProdIds.connect(self.setProdIDs)
+        self.prodInfo.emitClearIDs.connect(self.clearIDs)
         self.prodInfo.buttons.startButton.clicked.connect(self.prodSequenzClicked)
         self.prodInfo.buttons.backButton.clicked.connect(self.prodSequenzBack)
-        self.prodInfo.buttons.stopButton.clicked.connect(self.proSequenzCancel)
         
         self.loadSettings()
 
@@ -153,18 +155,31 @@ class MainWindow(QtGui.QMainWindow):
         font = QtGui.QFont()
         font.setBold(True)
         font.setPointSize(24)
-        if not self.chan1SollLabel.text() == '----.---':
+        if self.chan1SollLabel.isVisible():
             tol = self.prodInfo.getTolaranz()
-            diff = abs(float(self.chan1IsLabel.text())-float(self.chan1SollLabel.text()))
+            diff = float(self.chan1IsLabel.text())-float(self.chan1SollLabel.text())
             #print(diff, self.sollGreen[self.prodStep], self.sollGreen[self.prodStep]*3)
-            if diff <= tol:
-                self.chan1IsLabel.setStyleSheet("color: green")
-            elif diff <= tol*3:
-                self.chan1IsLabel.setStyleSheet("color: orange")
+            if self.prodInfo.getProdPlanNum() == 2:
+                if diff < tol:
+                    self.chan1IsLabel.setStyleSheet("color: green")
+                elif diff < tol*2:
+                    self.chan1IsLabel.setStyleSheet("color: orange")
+                else:
+                    self.chan1IsLabel.setStyleSheet("color: red")
             else:
-                self.chan1IsLabel.setStyleSheet("color: red")
+                if abs(diff) <= tol:
+                    self.chan1IsLabel.setStyleSheet("color: green")
+                elif abs(diff) <= tol*3:
+                    self.chan1IsLabel.setStyleSheet("color: orange")
+                else:
+                    self.chan1IsLabel.setStyleSheet("color: red")
         else:
             self.chan1IsLabel.setStyleSheet("color: black")
+            
+    def clearIDs(self):
+        self.proID.clear()
+        self.fbgID.clear()
+        self.sensorID.clear()
             
     def closeEvent(self, event):
         reply = QtGui.QMessageBox.question(self, 'Message',
@@ -197,8 +212,8 @@ class MainWindow(QtGui.QMainWindow):
             else:
                 self.tempConnected = False
                 self.connectTempAction.setChecked(False)
-                QtGui.QMessageBox.critical(self,'Connection Error',
-                                       'Could not connect to TC08-USB. Please try again')
+                QtGui.QMessageBox.critical(self,'Verbindungsfehler',
+                                       'Konnte keine Verbindung zu TC08-USB herstellen. Bitte nochmal versuchen!')
                 return 0
                 
         except USBTC08_ERROR as e:
@@ -234,7 +249,7 @@ class MainWindow(QtGui.QMainWindow):
         prodIdLabel = QtGui.QLabel(text='Produktion:', font=font) 
         self.proID = QtGui.QLineEdit(font=font)
         self.proID.setAlignment(QtCore.Qt.AlignRight)
-        fbgIdLabel = QtGui.QLabel(text='FBG:', font=font) 
+        fbgIdLabel = QtGui.QLabel(text='Faser:', font=font) 
         self.fbgID = QtGui.QLineEdit(font=font)
         self.fbgID.setAlignment(QtCore.Qt.AlignRight)
         sensorIdLabel = QtGui.QLabel(text='Sensor:', font=font)
@@ -270,27 +285,22 @@ class MainWindow(QtGui.QMainWindow):
         isLabel = QtGui.QLabel(text='Ist')
         isLabel.setAlignment(QtCore.Qt.AlignCenter)
         isLabel.setFont(font)
-        sollLabel= QtGui.QLabel(text='Soll')
-        sollLabel.setAlignment(QtCore.Qt.AlignCenter)
-        sollLabel.setFont(font)
+        self.sollLabel= QtGui.QLabel(text='Soll')
+        self.sollLabel.setAlignment(QtCore.Qt.AlignCenter)
+        self.sollLabel.setFont(font)
+        self.sollLabel.setVisible(False)
         self.chan1IsLabel = QtGui.QLabel()
-        self.chan1IsLabel.setText('0000.000')
+        self.chan1IsLabel.setText('0.0')
         self.chan1IsLabel.setFont(font)
         self.chan1SollLabel = QtGui.QLabel()
-        self.chan1SollLabel.setText('----.---')
+        #self.chan1SollLabel.setText('----.---')
         self.chan1SollLabel.setFont(font)
+        self.chan1SollLabel.setAlignment(QtCore.Qt.AlignRight)
+        self.chan1SollLabel.setVisible(False)
         font.setBold(True)
         font.setPointSize(12)
-        #spinLabel = QtGui.QLabel(text='Points for Regression: ')
-        #spinLabel.setFont(font)
-        #self.numPointsSpin = QtGui.QSpinBox()
-        #self.numPointsSpin.setRange(10,self.__maxBuffer)
-        #self.numPointsSpin.setValue(50)
-        #self.numPointsSpin.valueChanged.connect(self.plotW.setRegPoints)
-        slopeLabel = QtGui.QLabel(text='Slope [pm/s]:')
-        slopeLabel.setFont(font)
-        dSlopeLabel = QtGui.QLabel(text= u'\u0394Slope [pm/s]:')
-        dSlopeLabel.setFont(font)
+        #slopeLabel = QtGui.QLabel(text='Slope [pm/s]:')
+        #slopeLabel.setFont(font)
         self.slopeCh1Dial = SlopeMeter()
         self.tempDisplay = QtGui.QLabel(text=u'-.- \u00b0C')
         font.setBold(True)
@@ -302,27 +312,37 @@ class MainWindow(QtGui.QMainWindow):
         font.setPointSize(44)
         self.__timeStr = '00:00'        
         self.__timerLabel = QtGui.QLabel(self,text=self.__timeStr)
-        self.__timerLabel.setStyleSheet("color: red")
         self.__timerLabel.setFont(font)
         self.__timerLabel.setFrameShape(QtGui.QFrame.StyledPanel)
         self.__timerLabel.setFrameShadow(QtGui.QFrame.Raised)
         
+        style = "font-size: 16px; font-weight: bold"
+        self.openSensorButton = QtGui.QPushButton(text='SensorID laden')
+        self.openSensorButton.setStyleSheet(style)
+        self.openSensorButton.clicked.connect(self.openSensor)     
+        self.openSensorButton.setEnabled(False)
+        
         valLayout = QtGui.QGridLayout()
         valLayout.addWidget(isLabel,0,0)
-        valLayout.addWidget(sollLabel,0,1)
+        valLayout.addWidget(self.sollLabel,0,1)
         valLayout.addWidget(self.chan1IsLabel,1,0)
         valLayout.addWidget(self.chan1SollLabel,1,1)
-        valLayout.addWidget(self.slopeCh1Dial,2,0)
+        valLayout.addWidget(self.slopeCh1Dial,3,0)
         valLayout.addWidget(self.tempDisplay,2,1)
-        #valLayout.addWidget(spinLabel,3,0)
-        #valLayout.addWidget(self.numPointsSpin,3,1)
-        valLayout.addWidget(self.__timerLabel,3,0)
+        #valLayout.addWidget(self.__timerLabel,4,0)
+        #valLayout.addWidget(self.openSensorButton,4,0)
         
         
         self.slopeCh1Dial.setValue(0.)
+        bottomL = QtGui.QHBoxLayout()
+        bottomL.addStretch()
+        bottomL.addWidget(self.__timerLabel)
+        bottomL.addWidget(self.openSensorButton)
+        bottomL.addStretch()
         
         il.addLayout(valLayout)
         il.addStretch()
+        il.addLayout(bottomL)
         i.setLayout(il)
         
         return i
@@ -353,6 +373,16 @@ class MainWindow(QtGui.QMainWindow):
         self.stopAction = self.createAction('St&op', slot=self.stopMeasurement, shortcut='Ctrl+T',
                                         tip='Stop Messung', icon='Button Stop')
         
+        self.buildAction = self.createAction('Aufbau', checkable=True)
+        self.siliconAction = self.createAction('Silikon', checkable=True)
+        self.terminationAction = self.createAction('Faserterminierung', checkable=True)
+        
+        self.buildAction.setChecked(True)
+        self.buildAction.toggled.connect(self.setBuildAction)
+        self.siliconAction.toggled.connect(self.setSiliconAction)
+        self.terminationAction.toggled.connect(self.setTerminationAction)
+        
+        
         self.fileMenu.addAction(self.quitAction)
 
         aboutAction = self.createAction('About', slot=self.about)
@@ -364,18 +394,35 @@ class MainWindow(QtGui.QMainWindow):
         
         self.toolbar = self.addToolBar('Measurement')
         
-        self.addActions(self.toolbar, (self.connectAction, self.connectTempAction, None, self.startAction, self.stopAction))#, self.importFileAction, self.importLogAction, self.exportData, None,self.showOptAction,None,self.fitAction, self.showFitAction))
-        
-    def openOptionsDialog(self):
-        
-        passW, ok = QtGui.QInputDialog.getText(self,"Optionen", "Bitte Password eingeben")
-        
-        if ok and passW == 'Test':
-            option = OptionDialog()
-            if option.exec_():
-                self.prodInfo.loadSettings()
-                self.loadSettings()
-            pass
+        self.addActions(self.toolbar, (self.connectAction, self.connectTempAction, None, self.startAction, self.stopAction, None,
+                                       self.buildAction, self.siliconAction, self.terminationAction))#, self.importFileAction, self.importLogAction, self.exportData, None,self.showOptAction,None,self.fitAction, self.showFitAction))
+    
+    def setBuildAction(self):
+        if self.buildAction.isChecked():
+            self.siliconAction.setChecked(False)
+            self.terminationAction.setChecked(False)
+            self.clearIDs()
+            
+            self.prodInfo.changeProdPlan(0)
+                        
+            
+    def setSiliconAction(self):
+        if self.siliconAction.isChecked():
+            self.buildAction.setChecked(False)
+            self.terminationAction.setChecked(False)
+            self.clearIDs()
+            
+            self.prodInfo.changeProdPlan(1)
+            self.__timerLabel.setVisible(False)
+                        
+    def setTerminationAction(self):
+        if self.terminationAction.isChecked():
+            self.buildAction.setChecked(False)
+            self.siliconAction.setChecked(False)
+            self.clearIDs()
+            
+            self.prodInfo.changeProdPlan(2)
+            
             
     def disconnectTemp(self):
         if self.updateTempTimer.isActive():
@@ -410,9 +457,14 @@ class MainWindow(QtGui.QMainWindow):
         
         wl = self.__scaledWavelength
         self.plotW.plotS(wl,self.dbmData)
+        if self.prodInfo.getProdPlanNum() == 2:
+            rl = self.calcReturnloss()
+            self.chan1IsLabel.setText(str("{0:.1f}".format(rl)))
+            self.calculateLabelColor()
+        else:
         #get peak data
-        numVal = self.getPeakData(wl, self.dbmData, actualTime)
-        self.plotW.plotT(self.peaksTime[:numVal-1], self.peaks[:numVal-1])
+            numVal = self.getPeakData(wl, self.dbmData, actualTime)
+            self.plotW.plotT(self.peaksTime[:numVal-1], self.peaks[:numVal-1])
                 
     def readDataFromQ(self):
         qData = list(list(self.getAllFromQueue(self.dataQ)))
@@ -484,6 +536,7 @@ class MainWindow(QtGui.QMainWindow):
         self.__heatingTime = int(settings.value('Heizdauer'))
         vorSp = float(settings.value('VorspannFein'))
         deltaHeating = float(settings.value('HeizDetekt'))
+        self.__SpecWinRL = float(settings.value('windowRL'))
         settings.endGroup()
         
         settings.beginGroup('Dateipfade')
@@ -504,8 +557,31 @@ class MainWindow(QtGui.QMainWindow):
         self.scaleInputSpectrum(minWl,maxWl)
         self.setBuffer()
         self.plotW.setRegPoints(regPoints)
-        print('Einstellungen Hauptfenster wurden geladen')        
+        print('Einstellungen Hauptfenster wurden geladen')     
+        
     
+    def openOptionsDialog(self):
+        passW, ok = QtGui.QInputDialog.getText(self,"Optionen", "Bitte Password eingeben")
+        if ok and passW == 'Test':
+            option = OptionDialog()
+            if option.exec_():
+                self.prodInfo.loadSettings()
+                self.loadSettings()
+
+    def openSensor(self):
+        ids = self.prodInfo.getSensorIDs() 
+        newDia = NewSensorDialog(ids)
+        index = 0
+        if newDia.exec_():
+            index = newDia.setSensor()
+            self.setIDbyIndex(index)
+            
+    def setIDbyIndex(self, index =-1):
+        pro, fbg, sens = self.prodInfo.getIDbyIndex(index)
+        self.proID.setText(pro)
+        self.fbgID.setText(fbg)
+        self.sensorID.setText(sens)
+        
     def saveSpectrum(self, x, y):
         if len(x) == 0:
             y = self.dbmData
@@ -553,6 +629,16 @@ class MainWindow(QtGui.QMainWindow):
     def setSlope(self, slope):
         self.slopeCh1Dial.setSlope(slope)
         
+    def setSollLabel(self, text):
+        if text:
+            self.sollLabel.setVisible(True)
+            self.chan1SollLabel.setVisible(True)
+            self.chan1SollLabel.setText(text)
+        else:
+            self.sollLabel.setVisible(False)
+            self.chan1SollLabel.setVisible(False)
+            
+            
     def setTime(self, sec):
         m, s = divmod(sec, 60)
         timeStr="%02d:%02d" % (m, s)
@@ -625,7 +711,7 @@ class MainWindow(QtGui.QMainWindow):
         print('Test for Thermometer')
         try:
             if not self.tempConnected:
-                self.connectTemp
+                self.connectTemp()
         except:
             pass
         if self.tempConnected:
@@ -653,6 +739,21 @@ class MainWindow(QtGui.QMainWindow):
     def activateCooling(self):
         self.__activateCooling = True
         
+    def activateOpenSensor(self):
+        
+        if self.prodInfo.getProdPlanNum():
+            self.__timerLabel.setVisible(False)
+            self.openSensorButton.setVisible(True)
+            if self.prodInfo.getProStep() == 0:
+                self.clearIDs()
+                self.openSensorButton.setEnabled(True)
+            else:
+                self.openSensorButton.setEnabled(False)
+        else:
+            self.__timerLabel.setVisible(True)
+            self.openSensorButton.setVisible(False)
+        
+        
     def updateHeatingTimer(self):
         ht = time.time() - self.__heatingStartTime
         self.setTime(ht)
@@ -672,9 +773,9 @@ class MainWindow(QtGui.QMainWindow):
                 
     def startProductionSequence(self):
         if not self.testModus:
-            if not self.testSpectrometer(): 
-                return 0
             if not self.testThermometer(): 
+                return 0
+            if not self.testSpectrometer(): 
                 return 0
             if not self.measurementActive:
                 self.startMeasurement()
@@ -689,36 +790,30 @@ class MainWindow(QtGui.QMainWindow):
         elif self.prodInfo.buttons.startButton.text() == 'Weiter':
             print('Next Step')
             if self.prodInfo.getProStep() < self.prodInfo.proStepNb[-1]-2:
+                self.prodInfo.buttons.setEnabled(False)
                 if self.parseProdCondition():
                     self.parseProdMeas()
                     self.prodInfo.nextProductionStep()
+                self.prodInfo.buttons.setEnabled(True)
+                
             elif self.prodInfo.getProStep() == self.prodInfo.proStepNb[-1]-2:
                 if self.parseProdCondition():
                     self.parseProdMeas()
                     self.prodInfo.buttons.startButton.setText('Neu')
                     self.prodInfo.nextProductionStep()
         elif self.prodInfo.buttons.startButton.text() == 'Neu':
-            reply = QtGui.QMessageBox.question(self, 'Achtung',
-                                    unicode("""Es wird eine neue Produktionssequenz gestartet!
-                                    \n\n Wollen Sie wirklich fortfahren""", 'utf-8'), 
-                                    QtGui.QMessageBox.Yes, QtGui.QMessageBox.No)
-
-            if reply == QtGui.QMessageBox.Yes:
-                print('Neu')
-                self.startProductionSequence()
-            else:
-                return 0
+            self.prodInfo.productionSequenzCancel(0)
             
         else:
             print('Error Production Sequenz')
+        self.activateOpenSensor()
+        #self.prodInfo.buttons.startButton.setFocus()
+        
             
     def prodSequenzBack(self):
         if self.prodInfo.getProStep() > 0:
             self.prodInfo.productionSequenzBack()
-            
-    def proSequenzCancel(self):
-        self.prodInfo.productionSequenzCancel()
-            
+        self.activateOpenSensor()
             
     def parseProdCondition(self):
         cond = self.prodInfo.getProCondition()
@@ -733,26 +828,61 @@ class MainWindow(QtGui.QMainWindow):
                             self.printError(0)
                             return 0
                 elif c == 'ids':
+                    print('Test for IDs')
                     if not self.testModus:
-                        if not self.proID.text():
-                            self.printError(1)
-                            return 0
-                        if not self.fbgID.text():
-                            self.printError(2)
-                            return 0
-                        if not self.sensorID.text():
-                            self.printError(3)
-                            return 0
-                        if not self.getIDs():
-                            self.printError(4)
-                            return 0
+                        if self.prodInfo.getProdPlanNum() == 0:
+                            text = self.proID.text()
+                            if not text:
+                                self.printError(1)
+                                self.proID.setFocus()
+                                return 0
+                            if not self.prodInfo.testID(0,text):
+                                self.printError(9)
+                                self.proID.clear()
+                                self.proID.setFocus()
+                                return 0
+                                
+                            text = self.fbgID.text()
+                            if not text:
+                                self.printError(2)
+                                self.fbgID.setFocus()
+                                return 0
+                            if not self.prodInfo.testID(1,text):
+                                self.printError(10)
+                                self.fbgID.clear()
+                                self.fbgID.setFocus()
+                                return 0
+                                
+                            text = self.sensorID.text()
+                            if not text:
+                                self.printError(3)
+                                self.sensorID.setFocus()
+                                return 0
+                            if not self.prodInfo.testID(2,text):
+                                self.printError(11)
+                                self.sensorID.clear()
+                                self.sensorID.setFocus()
+                                return 0
+                        else:
+                            if not self.proID.text():
+                                self.printError(7)
+                                return 0
+                        
                 elif c == 'Zielwert':
                     tol = self.prodInfo.getTolaranz()
-                    diff = abs(float(self.chan1IsLabel.text())-float(self.chan1SollLabel.text()))
-                    if diff > tol:
-                        reply = QtGui.QMessageBox.question(self, 'Warnung',
-                                    unicode("""Peakwellenlänge entspricht nicht der Vorgabe!
-                                    \n\n Wollen Sie wirklich fortfahren""", 'utf-8'), 
+                    diff = float(self.chan1IsLabel.text())-float(self.chan1SollLabel.text())
+                    msgWl = unicode("""Peakwellenlänge entspricht nicht der Vorgabe!
+                                    \n\n Wollen Sie wirklich fortfahren""", 'utf-8')
+                    msgRl = unicode("""Rückstreuung entspricht nicht der Vorgabe!
+                                    \n\n Wollen Sie wirklich fortfahren""", 'utf-8')
+                    if self.prodInfo.getProdPlanNum() == 2:
+                        isTol = diff <tol
+                        msg = msgRl
+                    else:
+                        isTol = abs(diff) < tol
+                        msg = msgWl
+                    if not isTol:
+                        reply = QtGui.QMessageBox.question(self, 'Warnung', msg, 
                                     QtGui.QMessageBox.Yes, QtGui.QMessageBox.No)
 
                         if reply == QtGui.QMessageBox.Yes:
@@ -776,7 +906,18 @@ class MainWindow(QtGui.QMainWindow):
                 #print (meas)
                 for m in meas:
                     m = m.strip()
-                    if m == 'peak':
+                    if m == 'ids':
+                        print('Write ids')
+                        if not self.testModus:
+                            if not self.getIDs():
+                                self.printError(4)
+                                return 0
+                            
+                    elif m == 'date':
+                        print('Write date')
+                        if not self.testModus:
+                            self.prodInfo.setDate()
+                    elif m == 'peak':
                         print('Measure Peak Wavelength')
                         if not self.testModus:
                             peak = self.chan1IsLabel.text()
@@ -806,7 +947,11 @@ class MainWindow(QtGui.QMainWindow):
                     elif m == 'timer':
                         print('Activate heating Timer.')
                         if not self.testModus:
-                            self.activateTimer()
+                            if self.heatingTimer.isActive():
+                                self.printError(8)
+                                self.prodSequenzBack()
+                            else:
+                                self.activateTimer()
                     elif m == 'cooling':
                         print('Wait for Temprature = 90°C')
                         if not self.testModus:
@@ -852,7 +997,16 @@ class MainWindow(QtGui.QMainWindow):
             return np.abs(pFit-pCOG)
         else:
             return 0
-            
+    
+    def calcReturnloss(self):
+        x = self.__scaledWavelength
+        y = self.dbmData
+        maxX = x[np.argmax(y)]
+        xmin = float(maxX)-float(self.__SpecWinRL)
+        xmax = float(maxX)+float(self.__SpecWinRL)
+        pos = np.where((x<=xmin)|(x>=xmax))[0]
+        return np.mean(y[pos])
+                  
     def gauss(self,x, center, amp, sig, off):
         up = x - center
         up2 = up*up
@@ -865,24 +1019,32 @@ class MainWindow(QtGui.QMainWindow):
     def printError(self, errorCode):
         errorHeader = ['Kein FBG gefunden',     #0
                        'Keine Produktions ID',  #1
-                       'Keine FBG ID',          #2
+                       'Keine Faser ID',          #2
                        'Keine Sensor ID',       #3
                        'Schreibfehler',         #4
                        'Kein Spektrometer',     #5
-                       'Kein Thermometer']      #6
+                       'Kein Thermometer',      #6
+                       'Kein Sensor geladen',    #7
+                       'Timer aktiv',           #8
+                       'Produktions ID bereits vorhanden',  #9
+                       'Faser ID bereits vorhanden',        #10
+                       'Sensor ID bereits vorhanden']       #11
                        
         errorMessage = [unicode('Konnte keinen Peak detektieren. Bitte überprüfen Sie die angeschlossene Faser', 'utf-8'),
                         unicode('Bitte geben Sie eine Produktions-Identifikationsnummer ein.', 'utf-8'),
-                        unicode('Bitte geben Sie eine FBG-Identifikationsnummer ein.', 'utf-8'),
+                        unicode('Bitte geben Sie eine Faser-Identifikationsnummer ein.', 'utf-8'),
                         unicode('Bitte geben Sie eine Sensor-Identifikationsnummer ein.', 'utf-8'),
                         unicode('Konnte Identifikationsnummern nicht in Tabelle schreiben.', 'utf-8'),
                         unicode('Bitte überprüfen Sie ob das Spektrometer angeschaltet bzw. angeschlossen ist.', 'utf-8'),
-                        unicode('Bitte überprüfen Sie ob das Thermometer angeschaltet bzw. angeschlossen ist.', 'utf-8')]
+                        unicode('Bitte überprüfen Sie ob das Thermometer angeschaltet bzw. angeschlossen ist.', 'utf-8'),
+                        unicode('Bitte SensorID laden.','utf-8'),
+                        unicode('Bitte warten bis die aktuelle Heizperiode beendet ist.','utf-8'),
+                        unicode('Die gewählte Produktions ID ist bereits vorhanden.\nBitte geben Sie eine neue ID ein.','utf-8'),
+                        unicode('Die gewählte Faser ID ist bereits vorhanden.\nBitte geben Sie eine neue ID ein.','utf-8'),
+                        unicode('Die gewählte Sensor ID ist bereits vorhanden.\nBitte geben Sie eine neue ID ein.','utf-8')]
         
         QtGui.QMessageBox.critical(self,errorHeader[errorCode],errorMessage[errorCode])
         
-class PassDialog(QtGui.QInputDialog):
-    def __init__(self, *args):
-        QtGui.QInputDialog.__init__(self, *args)
+
         
         
