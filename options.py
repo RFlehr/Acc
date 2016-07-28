@@ -330,40 +330,42 @@ class OptionDialog(QtGui.QDialog):
         else:
             path = QtGui.QFileDialog.getExistingDirectory(self, caption=unicode('Bitte den Ordner auswählen','utf8'))
         if path:
-            self.lEdits[bIndex].setText(os.path.normpath(path))
-            self.__paths[bIndex] = os.path.normpath(path)
+            self.lEdits[bIndex].setText(os.path.normpath(str(path)))
+            self.__paths[bIndex] = os.path.normpath(str(path))
                 
     def loadSettings(self):
         settings = QtCore.QSettings('test.ini',QtCore.QSettings.IniFormat)
         settings.beginGroup('Produktion')
-        self.__vGrob = float(settings.value('VorspannGrob', self.__vGrob))
-        self.__vGTol = float(settings.value('VorGrobTol', self.__vGTol))
-        self.__vFein = float(settings.value('VorspannFein', self.__vFein))
-        self.__vFTol = float(settings.value('VorFeinTol', self.__vFTol))
-        self.__hZeit = int(settings.value('Heizdauer',self.__hZeit))
-        self.__hDet = float(settings.value('HeizDetekt', self.__hDet))
-        self.__finalTemp = float(settings.value('Endtemp', self.__finalTemp))
-        self.__wavelengthSi = float(settings.value('SiVerklebung', self.__wavelengthSi))
-        self.__deltaSi = float(settings.value('DeltaSiVerklebung', self.__deltaSi))
-        self.__returnLoss = int(settings.value('returnLoss', self.__returnLoss))
-        self.__deltaReturnLoss = int(settings.value('DeltaReturnLoss', self.__deltaReturnLoss))
-        self.__windowRL = float(settings.value('windowRL', self.__windowRL))
+        self.__vGrob = settings.value('VorspannGrob', self.__vGrob).toFloat()[0]
+        self.__vGTol = settings.value('VorGrobTol', self.__vGTol).toFloat()[0]
+        self.__vFein = settings.value('VorspannFein', self.__vFein).toFloat()[0]
+        self.__vFTol = settings.value('VorFeinTol', self.__vFTol).toFloat()[0]
+        self.__hZeit = settings.value('Heizdauer',self.__hZeit).toInt()[0]
+        self.__hDet = settings.value('HeizDetekt', self.__hDet).toFloat()[0]
+        self.__finalTemp = settings.value('Endtemp', self.__finalTemp).toFloat()[0]
+        self.__wavelengthSi = settings.value('SiVerklebung', self.__wavelengthSi).toFloat()[0]
+        self.__deltaSi = settings.value('DeltaSiVerklebung', self.__deltaSi).toFloat()[0]
+        self.__returnLoss = settings.value('returnLoss', self.__returnLoss).toInt()[0]
+        self.__deltaReturnLoss = settings.value('DeltaReturnLoss', self.__deltaReturnLoss).toInt()[0]
+        self.__windowRL = settings.value('windowRL', self.__windowRL).toFloat()[0]
         settings.endGroup()
         
         settings.beginGroup('Dateipfade')
         for i in range(3):
-            s = settings.value(self.__pathLabels[i])
+            print(settings.value(self.__pathLabels[i]))
+            print(settings.value(self.__pathLabels[i]).toString())
+            s = str(settings.value(self.__pathLabels[i]).toString())
             self.__paths[i] = s
         settings.endGroup()
         
         settings.beginGroup('Plot')
-        self.__maxBuffer = int(settings.value('Buffer', self.__maxBuffer))
-        self.__tracePoints = int(settings.value('TracePunkte', self.__tracePoints))
-        self.__showTrace = int(settings.value('ShowTrace', self.__showTrace))
-        self.__showSpec = int(settings.value('ShowSpec', self.__showSpec))
-        self.__minWl = float(settings.value('MinWl', self.__minWl))
-        self.__maxWl = float(settings.value('MaxWl', self.__maxWl))
-        self.__regPoints = int(settings.value('RegPoints', self.__regPoints))
+        self.__maxBuffer = settings.value('Buffer', self.__maxBuffer).toInt()[0]
+        self.__tracePoints = settings.value('TracePunkte', self.__tracePoints).toInt()[0]
+        self.__showTrace = settings.value('ShowTrace', self.__showTrace).toInt()[0]
+        self.__showSpec = settings.value('ShowSpec', self.__showSpec).toInt()[0]
+        self.__minWl = settings.value('MinWl', self.__minWl).toFloat()[0]
+        self.__maxWl = settings.value('MaxWl', self.__maxWl).toFloat()[0]
+        self.__regPoints = settings.value('RegPoints', self.__regPoints).toInt()[0]
         settings.endGroup()
         
     def saveSettings(self):

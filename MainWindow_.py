@@ -11,7 +11,7 @@ __title__ =  'FBGacc'
 __about__ = """Hyperion si255 Interrogation Software
             for fbg-acceleration sensors production
             """
-__version__ = '0.6.1'
+__version__ = '0.6.0    '
 __date__ = '07.07.2016'
 __author__ = 'Roman Flehr'
 __cp__ = u'\u00a9 2016 Loptek GmbH & Co. KG'
@@ -498,7 +498,7 @@ class MainWindow(QtGui.QMainWindow):
         return er
         
     def getPeakData(self, wl, dbmData, timestamp):
-        peak = self.peakFit(wl, dbmData)[0]
+        peak = self.peakFit(wl, dbmData)
         numVal = np.count_nonzero(self.peaks)
         self.chan1IsLabel.setText(str("{0:.3f}".format(peak)))
         self.calculateLabelColor()
@@ -691,25 +691,17 @@ class MainWindow(QtGui.QMainWindow):
         self.setActionState()
     
 
-    def testChannelForPeaks(self):
-#==============================================================================
-#         i = Channel
-#         numFBGs = 0
-#         try:
-#             peaks = self.si255.get_peaks()
-#             peakData  = peaks.get_channel(i)
-#             numFBGs = len(peakData)
-#             print('Channel ',i,' ',numFBGs,' Gitter')
-#         except:
-#             pass
-#==============================================================================
-        data = self.peakFit(self.__scaledWavelength, self.dbmData)
-        if (data[1]-data[3]) > 10 and data[0] > 1543. and data[0] < 1550.:
-            print('Peak found')
-            FBG = 1
-        else:
-            FBG = 0
-        return FBG
+    def testChannelForPeaks(self, Channel = 1):
+        i = Channel
+        numFBGs = 0
+        try:
+            peaks = self.si255.get_peaks()
+            peakData  = peaks.get_channel(i)
+            numFBGs = len(peakData)
+            print('Channel ',i,' ',numFBGs,' Gitter')
+        except:
+            pass
+        return numFBGs
         
     def testSpectrometer(self):
         print('Test for Spectrometer')
@@ -842,7 +834,7 @@ class MainWindow(QtGui.QMainWindow):
                 c = c.strip()
                 if c == 'fbg':
                     if not self.testModus:
-                        if not self.testChannelForPeaks():
+                        if not self.testChannelForPeaks(1):
                             self.printError(0)
                             return 0
                 elif c == 'ids':
@@ -948,7 +940,7 @@ class MainWindow(QtGui.QMainWindow):
                     elif m == 'fwhm':
                         print('Determine FWHM')
                         if not self.testModus:
-                            cenFit = self.peakFit(x,y)[0]
+                            cenFit = self.peakFit(x,y)
                             fwhm = self.calcFWHM(x,y)
                             self.prodInfo.setFWHM(fwhm)
                     elif m == 'asymm':
@@ -983,7 +975,7 @@ class MainWindow(QtGui.QMainWindow):
         popt, pcov = curve_fit(self.gauss, x, y, p0)
         #self.plotW.plotS(x,self.gauss(x, popt[0],popt[1],popt[2],popt[3]))
         #print(popt)
-        return popt
+        return popt[0]
         
     def calcFWHM(self, x,y):
         hmdB = np.max(y) - 3

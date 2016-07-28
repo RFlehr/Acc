@@ -250,7 +250,7 @@ class ProductionInfo(QtGui.QWidget):
             cell = self.__log['A'+str(self.__logRow)].value
             if cell:
                 content = True
-                if self.__log['L'+str(self.__logRow)].value and not self.__log['O'+str(self.__logRow)].value:
+                if not self.__log['O'+str(self.__logRow)].value:
                     self.__prodID.append(self.testCell(cell))
                     cell = self.__log['B'+str(self.__logRow)].value
                     self.__fbgID.append(self.testCell(cell))
@@ -272,18 +272,18 @@ class ProductionInfo(QtGui.QWidget):
         self.__TolArray = []
         settings = QtCore.QSettings('test.ini',QtCore.QSettings.IniFormat)
         settings.beginGroup('Produktion')
-        self.__TargetArray.append(float(settings.value('VorspannGrob')))
-        self.__TolArray.append(float(settings.value('VorGrobTol')))
-        self.__TargetArray.append(float(settings.value('VorspannFein')))
-        self.__TolArray.append(float(settings.value('VorFeinTol')))
-        self.__TargetArray.append(float(settings.value('SiVerklebung')))
-        self.__TolArray.append(float(settings.value('DeltaSiVerklebung')))
-        self.__TargetArray.append(int(settings.value('returnLoss')))
-        self.__TolArray.append(int(settings.value('DeltaReturnLoss')))
+        self.__TargetArray.append(settings.value('VorspannGrob').toFloat()[0])
+        self.__TolArray.append(settings.value('VorGrobTol').toFloat()[0])
+        self.__TargetArray.append(settings.value('VorspannFein').toFloat()[0])
+        self.__TolArray.append(settings.value('VorFeinTol').toFloat()[0])
+        self.__TargetArray.append(settings.value('SiVerklebung').toFloat()[0])
+        self.__TolArray.append(settings.value('DeltaSiVerklebung').toFloat()[0])
+        self.__TargetArray.append(settings.value('returnLoss').toInt()[0])
+        self.__TolArray.append(settings.value('DeltaReturnLoss').toInt()[0])
         settings.endGroup()
         settings.beginGroup('Dateipfade')
         for i in range(3):
-            s = settings.value(self.__pathLabels[i])
+            s = str(settings.value(self.__pathLabels[i]).toString())
             self.__paths[i] = s
         settings.endGroup()
         print('Einstellungen Produktionsverlauf wurden geladen')
@@ -347,7 +347,7 @@ class ProductionInfo(QtGui.QWidget):
         elif self.__prodPlanNum == 1:
             colPeakWL = {2:'M', 4:'N'}
         elif self.__prodPlanNum == 2:
-            colPeakWL = {3:'P'}
+            colPeakWL = {2:'P'}
         self.__log[colPeakWL[self.proStepNb[self.__step]]+str(self.__logRow)].value = float(wavelength)
         self.wb.save(self.__paths[1])
             
