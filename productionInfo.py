@@ -16,6 +16,7 @@ Anweisung:
 from PyQt4 import QtGui, QtCore
 from openpyxl import load_workbook
 from time import strftime
+from shutil import copyfile
 #import os
 #print(strftime("%d.%m.%Y"))
 
@@ -318,6 +319,9 @@ class ProductionInfo(QtGui.QWidget):
         
         else:        
             self.emitClearIDs.emit()
+            fname = self.__paths[1].split('.')
+            fn = fname[0] + "_save." + fname[1]
+            copyfile(self.__paths[1], fn)
             self.startProduction()
                 
     def productionSequenzNew(self, planNum):
