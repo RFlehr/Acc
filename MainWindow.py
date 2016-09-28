@@ -207,7 +207,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.tempMon = MonitorTC08USBThread(self.tc08usb, self.tempQ)
                 self.tempMon.start()
                 self.tempConnected = True
-                self.updateTempTimer.start(150)
+                self.updateTempTimer.start(250)
                 return 1
             else:
                 self.tempConnected = False
@@ -978,7 +978,8 @@ class MainWindow(QtGui.QMainWindow):
 #### calculations
    
     def peakFit(self, x, y):
-        p0 = [x[np.argmax(y)], 30, .2, -60]
+        y=np.power(10,y/10)
+        p0 = [x[np.argmax(y)], 1, .2, 0]
         #y = np.power(10,y/10)
         popt, pcov = curve_fit(self.gauss, x, y, p0)
         #self.plotW.plotS(x,self.gauss(x, popt[0],popt[1],popt[2],popt[3]))
