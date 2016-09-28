@@ -692,19 +692,9 @@ class MainWindow(QtGui.QMainWindow):
     
 
     def testChannelForPeaks(self):
-#==============================================================================
-#         i = Channel
-#         numFBGs = 0
-#         try:
-#             peaks = self.si255.get_peaks()
-#             peakData  = peaks.get_channel(i)
-#             numFBGs = len(peakData)
-#             print('Channel ',i,' ',numFBGs,' Gitter')
-#         except:
-#             pass
-#==============================================================================
         data = self.peakFit(self.__scaledWavelength, self.dbmData)
-        if (data[1]-data[3]) > 10 and data[0] > 1543. and data[0] < 1550.:
+        #print(data)
+        if data[0] > 1543. and data[0] < 1550.:
             print('Peak found')
             FBG = 1
         else:
@@ -866,10 +856,10 @@ class MainWindow(QtGui.QMainWindow):
                                 self.fbgID.setFocus()
                                 return 0
                             if not self.prodInfo.testID(1,text):
-                                self.printError(10)
-                                self.fbgID.clear()
-                                self.fbgID.setFocus()
-                                return 0
+                                if not self.printError(10,1):
+                                    self.fbgID.clear()
+                                    self.fbgID.setFocus()
+                                    return 0
                                 
                             text = self.sensorID.text()
                             if not text:
@@ -877,10 +867,10 @@ class MainWindow(QtGui.QMainWindow):
                                 self.sensorID.setFocus()
                                 return 0
                             if not self.prodInfo.testID(2,text):
-                                self.printError(11)
-                                self.sensorID.clear()
-                                self.sensorID.setFocus()
-                                return 0
+                                if not self.printError(11,1):
+                                    self.sensorID.clear()
+                                    self.sensorID.setFocus()
+                                    return 0
                         else:
                             if not self.proID.text():
                                 self.printError(7)
@@ -980,10 +970,7 @@ class MainWindow(QtGui.QMainWindow):
     def peakFit(self, x, y):
         y=np.power(10,y/10)
         p0 = [x[np.argmax(y)], 1, .2, 0]
-        #y = np.power(10,y/10)
         popt, pcov = curve_fit(self.gauss, x, y, p0)
-        #self.plotW.plotS(x,self.gauss(x, popt[0],popt[1],popt[2],popt[3]))
-        #print(popt)
         return popt
         
     def calcFWHM(self, x,y):
@@ -1035,7 +1022,7 @@ class MainWindow(QtGui.QMainWindow):
         
         return amp*_exp + off
             
-    def printError(self, errorCode):
+    def printError(self, errorCode, warning=0):
         errorHeader = ['Kein FBG gefunden',     #0
                        'Keine Produktions ID',  #1
                        'Keine Faser ID',          #2
@@ -1059,10 +1046,18 @@ class MainWindow(QtGui.QMainWindow):
                         unicode('Bitte SensorID laden.','utf-8'),
                         unicode('Bitte warten bis die aktuelle Heizperiode beendet ist.','utf-8'),
                         unicode('Die gewählte Produktions ID ist bereits vorhanden.\nBitte geben Sie eine neue ID ein.','utf-8'),
-                        unicode('Die gewählte Faser ID ist bereits vorhanden.\nBitte geben Sie eine neue ID ein.','utf-8'),
-                        unicode('Die gewählte Sensor ID ist bereits vorhanden.\nBitte geben Sie eine neue ID ein.','utf-8')]
+                        unicode('Die gewählte Faser ID ist bereits vorhanden.\n\nWollen Sie wirklich fortfahren?','utf-8'),
+                        unicode('Die gewählte Sensor ID ist bereits vorhanden.\n\nWollen Sie wirklich fortfahren?','utf-8')]
         
-        QtGui.QMessageBox.critical(self,errorHeader[errorCode],errorMessage[errorCode])
+        if warning:
+            reply = QtGui.QMessageBox.question(self, errorHeader[errorCode], errorMessage[errorCode] ,
+                                    QtGui.QMessageBox.Yes, QtGui.QMessageBox.No)
+            if reply == QtGui.QMessageBox.Yes:
+                return 1
+            else:
+                return 0
+        else:
+            QtGui.QMessageBox.critical(self,errorHeader[errorCode],errorMessage[errorCode])
         
 
         
