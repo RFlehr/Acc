@@ -23,7 +23,7 @@ from shutil import copyfile
 class ProductionInfo(QtGui.QWidget):
     emitSoll = QtCore.pyqtSignal(str)
     emitTol = QtCore.pyqtSignal(str)
-    emitProdIds = QtCore.pyqtSignal(str, str)
+    emitProdIds = QtCore.pyqtSignal(str, str, str)
     
     emitGetIDs = QtCore.pyqtSignal()
     emitTestFbg = QtCore.pyqtSignal(int) # int - channel number
@@ -106,11 +106,14 @@ class ProductionInfo(QtGui.QWidget):
             proID = str(self.__year)+str('-')+str(1).zfill(4)
         if self.__logRow > 5:
             sensorID = self.__log['C'+str(self.__logRow-1)].value
+            fbgID = self.__log['B'+str(self.__logRow-1)].value.split('-')[0]+'-'
+            
         else: 
             sensorID = 0
+            fbgID = 0
         num = int(sensorID)+1
         sensorID = str(num).zfill(4)
-        self.emitProdIds.emit(proID, sensorID)
+        self.emitProdIds.emit(proID, sensorID, fbgID)
         
     def getIDbyIndex(self, index = -1):
         if not index == -1:

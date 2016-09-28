@@ -630,9 +630,10 @@ class MainWindow(QtGui.QMainWindow):
         self.peaks = np.zeros(self.__maxBuffer)
         self.peaksTime = np.zeros(self.__maxBuffer)
             
-    def setProdIDs(self, proID, sensorID):
+    def setProdIDs(self, proID, sensorID, fbgID):
         self.proID.setText(proID)
-        self.fbgID.clear()
+        self.fbgID.setText(fbgID)
+        self.fbgID.setFocus()
         self.sensorID.setText(sensorID)
             
     def setSlope(self, slope):
