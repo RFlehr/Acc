@@ -852,7 +852,8 @@ class MainWindow(QtGui.QMainWindow):
                                 return 0
                                 
                             text = self.fbgID.text()
-                            if not text:
+                            fID=text.split('-')
+                            if not text.split('-')[1]:
                                 self.printError(2)
                                 self.fbgID.setFocus()
                                 return 0
